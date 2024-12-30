@@ -4,11 +4,11 @@ import (
 	"context"
 	"log"
 	"net/http"
-	"os"
 
+	"callback-service/internal/callback"
 	"callback-service/internal/db"
+	"callback-service/internal/event"
 	"callback-service/internal/kafka"
-	"callback-service/internal/service"
 )
 
 func main() {
@@ -36,7 +36,7 @@ func main() {
 
 	repo := db.NewCallbackRepository(dbpool)
 
-	processor := service.NewPaymentEventProcessor(repo)
+	processor := event.NewProcessor(repo)
 
 	eventReader := kafka.NewReader("localhost:9092", "payment-events", "callback-service")
 	defer eventReader.Close()
@@ -46,12 +46,15 @@ func main() {
 	callbackWriter := kafka.NewWriter("localhost:9092", "callback-messages")
 	defer callbackWriter.Close()
 
-	callbackProducer := service.NewCallbackProducer(repo, callbackWriter)
+	callbackProducer := callback.NewProducer(repo, callbackWriter)
 
 	go callbackProducer.Start(context.Background())
 
-	go kafka.ReadCallbackMessages(kafka.NewReader("localhost:9092", "callback-messages", "callback-service"))
+	callbackSender := callback.NewSender()
 
-	log.Fatal(http.ListenAndServe(":"+os.Getenv("PORT"), mux))
+	callbackProcessor := callback.NewCallbackProcessor(repo, callbackSender)
 
+	go kafka.ReadCallbackMessages(kafka.NewReader("localhost:9092", "callback-messages", "callback-service"), callbackProcessor)
+
+	log.Fatal(http.ListenAndServe(":8081", mux))
 }

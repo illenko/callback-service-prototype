@@ -1,4 +1,4 @@
-package service
+package callback
 
 import (
 	"context"
@@ -9,16 +9,16 @@ import (
 	"github.com/segmentio/kafka-go"
 )
 
-type CallbackProducer struct {
+type Producer struct {
 	repo   *db.CallbackRepository
 	writer *kafka.Writer
 }
 
-func NewCallbackProducer(repo *db.CallbackRepository, writer *kafka.Writer) *CallbackProducer {
-	return &CallbackProducer{repo: repo, writer: writer}
+func NewProducer(repo *db.CallbackRepository, writer *kafka.Writer) *Producer {
+	return &Producer{repo: repo, writer: writer}
 }
 
-func (p *CallbackProducer) Start(ctx context.Context) {
+func (p *Producer) Start(ctx context.Context) {
 	ticker := time.NewTicker(1 * time.Second)
 	defer ticker.Stop()
 
@@ -33,7 +33,7 @@ func (p *CallbackProducer) Start(ctx context.Context) {
 	}
 }
 
-func (p *CallbackProducer) process(ctx context.Context) {
+func (p *Producer) process(ctx context.Context) {
 	log.Println("Starting transaction")
 	tx, err := p.repo.BeginTx(ctx)
 	if err != nil {
@@ -59,8 +59,9 @@ func (p *CallbackProducer) process(ctx context.Context) {
 
 	for _, m := range callbacks {
 		log.Printf("Preparing Kafka message for callback ID %s", m.ID)
+
 		msg := kafka.Message{
-			Key:   []byte(m.ID.String()),
+			Key:   []byte(m.PaymentID.String()), // Use payment ID as key to ensure ordering
 			Value: []byte(m.Payload),
 		}
 
