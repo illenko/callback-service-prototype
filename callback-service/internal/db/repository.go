@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -27,7 +28,7 @@ func NewCallbackRepository(pool *pgxpool.Pool) *CallbackRepository {
 
 func (r *CallbackRepository) Create(ctx context.Context, entity *CallbackEntity) (*CallbackEntity, error) {
 	query := `INSERT INTO callback_message (id, payment_id, payload, created_at) 
-	          VALUES ($1, $2, $3, $4, $5, $6) RETURNING id`
+	          VALUES ($1, $2, $3, $4) RETURNING id`
 	err := r.pool.QueryRow(ctx, query, entity.ID, entity.PaymentID, entity.Payload, entity.CreatedAt).Scan(&entity.ID)
 	if err != nil {
 		return nil, err
@@ -50,5 +51,43 @@ func (r *CallbackRepository) GetByID(ctx context.Context, id uuid.UUID) (*Callba
 func (r *CallbackRepository) ResetProcessedAt(ctx context.Context, id uuid.UUID) error {
 	query := `UPDATE callback_message SET processed_at = NULL, error = false WHERE id = $1`
 	_, err := r.pool.Exec(ctx, query, id)
+	return err
+}
+
+func (r *CallbackRepository) BeginTx(ctx context.Context) (pgx.Tx, error) {
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return tx, nil
+}
+
+func (r *CallbackRepository) GetUnprocessedCallbacks(ctx context.Context, tx pgx.Tx, limit int) ([]*CallbackEntity, error) {
+	query := `SELECT id, payment_id, payload
+	          FROM callback_message 
+	          WHERE processed_at IS NULL 
+	          ORDER BY created_at 
+	          LIMIT $1 
+	          FOR UPDATE SKIP LOCKED`
+	rows, err := tx.Query(ctx, query, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var callbacks []*CallbackEntity
+	for rows.Next() {
+		var callback CallbackEntity
+		if err := rows.Scan(&callback.ID, &callback.PaymentID, &callback.Payload); err != nil {
+			return nil, err
+		}
+		callbacks = append(callbacks, &callback)
+	}
+	return callbacks, nil
+}
+
+func (r *CallbackRepository) UpdateProcessedAtAndError(ctx context.Context, tx pgx.Tx, id uuid.UUID, processedAt time.Time, error bool) error {
+	query := `UPDATE callback_message SET processed_at = $1, error = $2 WHERE id = $3`
+	_, err := tx.Exec(ctx, query, processedAt, error, id)
 	return err
 }

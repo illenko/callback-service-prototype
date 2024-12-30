@@ -1,8 +1,10 @@
 package main
 
 import (
+	"context"
 	"log"
 	"net/http"
+	"os"
 
 	"callback-service/internal/db"
 	"callback-service/internal/kafka"
@@ -44,8 +46,12 @@ func main() {
 	callbackWriter := kafka.NewWriter("localhost:9092", "callback-messages")
 	defer callbackWriter.Close()
 
+	callbackProducer := service.NewCallbackProducer(repo, callbackWriter)
+
+	go callbackProducer.Start(context.Background())
+
 	go kafka.ReadCallbackMessages(kafka.NewReader("localhost:9092", "callback-messages", "callback-service"))
 
-	log.Fatal(http.ListenAndServe(":8080", mux))
+	log.Fatal(http.ListenAndServe(":"+os.Getenv("PORT"), mux))
 
 }
