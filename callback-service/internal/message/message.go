@@ -16,4 +16,5 @@ type Callback struct {
 	PaymentID uuid.UUID `json:"paymentId"`
 	Url       string    `json:"url"`
 	Payload   string    `json:"payload"`
+	Attempts  int       `json:"attempts"`
 }

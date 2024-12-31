@@ -7,10 +7,14 @@ import (
 )
 
 type CallbackMessageEntity struct {
-	ID          uuid.UUID `json:"id"`
-	PaymentID   uuid.UUID `json:"paymentId"`
-	Payload     string    `json:"payload"`
-	CreatedAt   time.Time `json:"createdAt"`
-	ProcessedAt time.Time `json:"processedAt,omitempty"`
-	Error       bool      `json:"error"`
+	ID          uuid.UUID
+	PaymentID   uuid.UUID
+	Url         string
+	Payload     string
+	CreatedAt   time.Time
+	UpdatedAt   time.Time
+	ScheduledAt *time.Time
+	DeliveredAt *time.Time
+	Attempts    int
+	Error       *string
 }

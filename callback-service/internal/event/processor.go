@@ -33,23 +33,10 @@ func (p *Processor) Process(ctx context.Context, event message.PaymentEvent) err
 		return err
 	}
 
-	callbackMessage := message.Callback{
+	entity := &db.CallbackMessageEntity{
 		ID:        event.ID,
 		PaymentID: event.Payload.ID,
-		Url:       event.Payload.CallbackUrl,
 		Payload:   string(payloadBytes),
-	}
-
-	messageBytes, err := json.Marshal(callbackMessage)
-	if err != nil {
-		log.Printf("Error marshalling message: %v", err)
-		return err
-	}
-
-	entity := &db.CallbackEntity{
-		ID:        event.ID,
-		PaymentID: event.Payload.ID,
-		Payload:   string(messageBytes),
 		CreatedAt: time.Now(),
 	}
 

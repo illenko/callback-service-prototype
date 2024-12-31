@@ -2,10 +2,12 @@ package callback
 
 import (
 	"context"
+	"encoding/json"
 	"log"
 	"time"
 
 	"callback-service/internal/db"
+	"callback-service/internal/message"
 	"github.com/segmentio/kafka-go"
 )
 
@@ -51,18 +53,29 @@ func (p *Producer) process(ctx context.Context) {
 
 	if len(callbacks) == 0 {
 		log.Println("No unprocessed callbacks found")
-		tx.Rollback(ctx)
+		tx.Commit(ctx)
 		return
 	}
 
 	var kafkaMessages []kafka.Message
 
-	for _, m := range callbacks {
-		log.Printf("Preparing Kafka message for callback ID %s", m.ID)
+	for _, entity := range callbacks {
+		log.Printf("Preparing Kafka message for callback ID %s", entity.ID)
+
+		callbackMessage := message.Callback{
+			ID:        entity.ID,
+			PaymentID: entity.PaymentID,
+			Url:       entity.Url,
+			Payload:   entity.Payload,
+			Attempts:  entity.Attempts,
+		}
+
+		// todo: add error handling
+		messageBytes, _ := json.Marshal(callbackMessage)
 
 		msg := kafka.Message{
-			Key:   []byte(m.PaymentID.String()), // Use payment ID as key to ensure ordering
-			Value: []byte(m.Payload),
+			Key:   []byte(entity.PaymentID.String()), // Use payment ID as key to ensure ordering
+			Value: messageBytes,
 		}
 
 		kafkaMessages = append(kafkaMessages, msg)
@@ -75,14 +88,29 @@ func (p *Producer) process(ctx context.Context) {
 	}
 
 	for _, callback := range callbacks {
-		log.Printf("Updating processed_at for callback ID %s", callback.ID)
-		err := p.repo.UpdateProcessedAtAndError(ctx, tx, callback.ID, time.Now(), err != nil)
+		log.Printf("Clear scheduled_at for callback ID %s", callback.ID)
+
+		entity := &db.CallbackMessageEntity{
+			ID:          callback.ID,
+			ScheduledAt: nil,
+			Error:       nil,
+		}
+
 		if err != nil {
-			log.Printf("Error updating processed_at for callback ID %s: %v", callback.ID, err)
+			errMsg := err.Error()
+			entity.Error = &errMsg
+		} else {
+			entity.Error = nil
+		}
+
+		err := p.repo.ClearScheduledAt(ctx, tx, entity)
+
+		if err != nil {
+			log.Printf("Error updating scheduled_at for callback ID %s: %v", callback.ID, err)
 			tx.Rollback(ctx)
 			return
 		} else {
-			log.Printf("Successfully updated processed_at for callback ID %s", callback.ID)
+			log.Printf("Successfully updated scheduled_at for callback ID %s", callback.ID)
 		}
 	}
 

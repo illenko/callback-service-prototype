@@ -4,6 +4,7 @@ import (
 	"context"
 	"log"
 	"net/http"
+	"time"
 
 	"callback-service/internal/callback"
 	"callback-service/internal/db"
@@ -12,6 +13,7 @@ import (
 )
 
 func main() {
+	time.Local = time.UTC
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /liveness", func(w http.ResponseWriter, r *http.Request) {
