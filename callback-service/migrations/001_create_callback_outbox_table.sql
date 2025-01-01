@@ -8,9 +8,7 @@ CREATE TABLE callback_message
     created_at        TIMESTAMP     NOT NULL,
     updated_at        TIMESTAMP     NOT NULL,
     scheduled_at      TIMESTAMP,
-    published_at      TIMESTAMP,
     delivered_at      TIMESTAMP,
-    publish_attempts  INT           NOT NULL DEFAULT 0,
     delivery_attempts INT           NOT NULL DEFAULT 0,
     error             TEXT          NULL
 );

@@ -4,10 +4,10 @@ import (
 	"context"
 	"log"
 	"net/http"
-	"os"
 	"time"
 
 	"callback-service/internal/callback"
+	"callback-service/internal/config"
 	"callback-service/internal/db"
 	"callback-service/internal/event"
 	"callback-service/internal/kafka"
@@ -17,11 +17,6 @@ import (
 
 func main() {
 	time.Local = time.UTC
-
-	mux := http.NewServeMux()
-	mux.HandleFunc("GET /liveness", func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusOK)
-	})
 
 	conn, err := db.GetConn()
 	if err != nil {
@@ -33,6 +28,12 @@ func main() {
 		log.Fatal(err)
 	}
 
+	kafkaURL := config.GetRequired("KAFKA_URL")
+	paymentEventsTopic := config.GetRequired("PAYMENT_EVENTS_TOPIC")
+	callbackMessagesTopic := config.GetRequired("CALLBACK_MESSAGES_TOPIC")
+	callbackServiceGroupID := config.GetRequired("CALLBACK_SERVICE_GROUP_ID")
+	serverPort := config.GetRequired("SERVER_PORT")
+
 	dbpool, err := db.GetPool()
 	if err != nil {
 		log.Fatal(err)
@@ -43,12 +44,6 @@ func main() {
 
 	processor := event.NewProcessor(repo)
 
-	kafkaURL := getRequiredVar("KAFKA_URL")
-	paymentEventsTopic := getRequiredVar("PAYMENT_EVENTS_TOPIC")
-	callbackMessagesTopic := getRequiredVar("CALLBACK_MESSAGES_TOPIC")
-	callbackServiceGroupID := getRequiredVar("CALLBACK_SERVICE_GROUP_ID")
-	port := getRequiredVar("PORT")
-
 	eventReader := kafka.NewReader(kafkaURL, paymentEventsTopic, callbackServiceGroupID)
 	defer eventReader.Close()
 
@@ -58,22 +53,16 @@ func main() {
 	defer callbackWriter.Close()
 
 	callbackProducer := callback.NewProducer(repo, callbackWriter)
-
 	go callbackProducer.Start(context.Background())
 
 	callbackSender := callback.NewSender()
-
 	callbackProcessor := callback.NewCallbackProcessor(repo, callbackSender)
 
 	go kafka.ReadCallbackMessages(kafka.NewReader(kafkaURL, callbackMessagesTopic, callbackServiceGroupID), callbackProcessor)
 
-	log.Fatal(http.ListenAndServe(":"+port, mux))
-}
-
-func getRequiredVar(key string) string {
-	value := os.Getenv(key)
-	if value == "" {
-		log.Fatalf("Environment variable %s is required but not set", key)
-	}
-	return value
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /liveness", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})
+	log.Fatal(http.ListenAndServe(":"+serverPort, mux))
 }

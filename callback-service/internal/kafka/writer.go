@@ -1,25 +1,20 @@
 package kafka
 
 import (
-	"os"
-	"strconv"
 	"time"
 
+	"callback-service/internal/config"
 	"github.com/segmentio/kafka-go"
 )
 
-func NewWriter(kafkaURL, topic string) *kafka.Writer {
-	batchSizeStr := os.Getenv("KAFKA_WRITER_BATCH_SIZE")
-	batchSize, err := strconv.Atoi(batchSizeStr)
-	if err != nil || batchSizeStr == "" {
-		batchSize = 100
-	}
+const (
+	DefaultBatchSize    = 100
+	DefaultBatchTimeout = 100
+)
 
-	batchTimeoutStr := os.Getenv("KAFKA_WRITER_BATCH_TIMEOUT")
-	batchTimeout, err := strconv.Atoi(batchTimeoutStr)
-	if err != nil || batchTimeoutStr == "" {
-		batchTimeout = 100
-	}
+func NewWriter(kafkaURL, topic string) *kafka.Writer {
+	batchSize := config.GetEnvInt("KAFKA_WRITER_BATCH_SIZE", DefaultBatchSize)
+	batchTimeout := config.GetEnvInt("KAFKA_WRITER_BATCH_TIMEOUT", DefaultBatchTimeout)
 
 	return &kafka.Writer{
 		Addr:                   kafka.TCP(kafkaURL),

@@ -15,9 +15,7 @@ type Sender struct {
 
 func NewSender() *Sender {
 	return &Sender{
-		client: resty.New().
-			SetDebug(true).
-			SetTimeout(10 * time.Second),
+		client: resty.New().SetTimeout(10 * time.Second),
 	}
 }
 

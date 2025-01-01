@@ -67,7 +67,7 @@ func (p *Producer) process(ctx context.Context) {
 			PaymentID: entity.PaymentID,
 			Url:       entity.Url,
 			Payload:   entity.Payload,
-			Attempts:  entity.Attempts,
+			Attempts:  entity.DeliveryAttempts,
 		}
 
 		// todo: add error handling
@@ -90,20 +90,16 @@ func (p *Producer) process(ctx context.Context) {
 	for _, callback := range callbacks {
 		log.Printf("Clear scheduled_at for callback ID %s", callback.ID)
 
-		entity := &db.CallbackMessageEntity{
-			ID:          callback.ID,
-			ScheduledAt: nil,
-			Error:       nil,
-		}
+		callback.ScheduledAt = nil
 
 		if err != nil {
 			errMsg := err.Error()
-			entity.Error = &errMsg
+			callback.Error = &errMsg
 		} else {
-			entity.Error = nil
+			callback.Error = nil
 		}
 
-		err := p.repo.ClearScheduledAt(ctx, tx, entity)
+		err := p.repo.Update(ctx, tx, callback)
 
 		if err != nil {
 			log.Printf("Error updating scheduled_at for callback ID %s: %v", callback.ID, err)

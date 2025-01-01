@@ -49,4 +49,21 @@ Callback body:
 Callback messages table: id, payment_id, payload, created_at, processed_at, error.
 
 
+```sql
 
+INSERT INTO callback_message (id, payment_id, payload, url, created_at, updated_at, scheduled_at, delivered_at,
+                              delivery_attempts, error)
+SELECT gen_random_uuid()                                                AS id,
+       gen_random_uuid()                                                AS payment_id,
+       jsonb_build_object('id', gen_random_uuid(), 'status', 'created') AS payload,
+       'http://localhost:8085/success-delayed'                          AS url,
+       NOW()                                                            AS created_at,
+       NOW()                                                            AS updated_at,
+       NOW()                                                            AS scheduled_at,
+       NULL                                                             AS delivered_at,
+       0                                                                AS delivery_attempts,
+       NULL                                                             AS error
+FROM generate_series(1, 100000);
+
+
+```

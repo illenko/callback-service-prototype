@@ -33,11 +33,14 @@ func (p *Processor) Process(ctx context.Context, event message.PaymentEvent) err
 		return err
 	}
 
+	now := time.Now()
+
 	entity := &db.CallbackMessageEntity{
-		ID:        event.ID,
-		PaymentID: event.Payload.ID,
-		Payload:   string(payloadBytes),
-		CreatedAt: time.Now(),
+		ID:          event.ID,
+		PaymentID:   event.Payload.ID,
+		Payload:     string(payloadBytes),
+		Url:         event.Payload.CallbackUrl,
+		ScheduledAt: &now,
 	}
 
 	_, err = p.repo.Create(ctx, entity)

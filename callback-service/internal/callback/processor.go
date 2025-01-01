@@ -3,12 +3,16 @@ package callback
 import (
 	"context"
 	"log"
-	"os"
-	"strconv"
 	"time"
 
+	"callback-service/internal/config"
 	"callback-service/internal/db"
 	"callback-service/internal/message"
+)
+
+const (
+	DefaultParallelism = 1000
+	DefaultMaxAttempts = 3
 )
 
 type Processor struct {
@@ -19,17 +23,8 @@ type Processor struct {
 }
 
 func NewCallbackProcessor(repo *db.CallbackRepository, sender *Sender) *Processor {
-	parallelismStr := os.Getenv("CALLBACK_PARALLELISM")
-	parallelism, err := strconv.Atoi(parallelismStr)
-	if err != nil || parallelismStr == "" {
-		parallelism = 1000
-	}
-
-	maxAttemptsStr := os.Getenv("MAX_ATTEMPTS")
-	maxAttempts, err := strconv.Atoi(maxAttemptsStr)
-	if err != nil || maxAttemptsStr == "" {
-		maxAttempts = 3
-	}
+	parallelism := config.GetEnvInt("CALLBACK_PARALLELISM", DefaultParallelism)
+	maxAttempts := config.GetEnvInt("MAX_DELIVERY_ATTEMPTS", DefaultMaxAttempts)
 
 	return &Processor{
 		repo:        repo,
@@ -60,24 +55,41 @@ func (p *Processor) Process(ctx context.Context, message message.Callback) error
 		}
 
 		err = p.sender.Send(ctx, message.Url, message.Payload)
-		attempts := entity.Attempts + 1
+		entity.DeliveryAttempts++
 
 		if err != nil {
 			log.Printf("Error sending callback: %v", err)
-			err = p.repo.UpdateScheduledAtAndAttemptsByID(ctx, tx, message.ID, time.Now().Add(time.Duration(attempts)*10*time.Second), attempts, err.Error())
-			if err != nil {
-				log.Printf("Error updating scheduled_at and attempts: %v", err)
-				tx.Rollback(ctx)
-				return
+
+			// Check if we have reached the max number of attempts
+			if entity.DeliveryAttempts >= p.maxAttempts {
+				log.Printf("Max delivery attempts reached for callback ID: %s", message.ID)
+				entity.ScheduledAt = nil
+				errorMsg := "Max delivery attempts reached. " + err.Error()
+				entity.Error = &errorMsg
+			} else {
+				scheduledAt := time.Now().Add(time.Duration(entity.DeliveryAttempts) * 10 * time.Second)
+				errorMsg := err.Error()
+				entity.ScheduledAt = &scheduledAt
+				entity.Error = &errorMsg
 			}
+
 		} else {
 			log.Printf("Successfully processed and sent event with ID: %s", message.ID)
-			err = p.repo.UpdateAttemptsAndDeliveredAtByID(ctx, tx, message.ID, attempts, time.Now())
-			if err != nil {
-				log.Printf("Error updating delivered_at and attempts: %v", err)
-				tx.Rollback(ctx)
-				return
-			}
+
+			now := time.Now()
+
+			entity.DeliveredAt = &now
+			entity.ScheduledAt = nil
+			entity.Error = nil
+		}
+
+		log.Printf("Updating callback with ID: %s", message.ID)
+
+		err = p.repo.Update(ctx, tx, entity)
+		if err != nil {
+			log.Printf("Error updating callback: %v", err)
+			tx.Rollback(ctx)
+			return
 		}
 
 		if err := tx.Commit(ctx); err != nil {
