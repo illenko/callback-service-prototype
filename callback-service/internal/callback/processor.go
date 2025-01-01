@@ -3,6 +3,8 @@ package callback
 import (
 	"context"
 	"log"
+	"os"
+	"strconv"
 	"time"
 
 	"callback-service/internal/db"
@@ -10,20 +12,32 @@ import (
 )
 
 type Processor struct {
-	repo   *db.CallbackRepository
-	sender *Sender
-	sem    chan struct{}
+	repo        *db.CallbackRepository
+	sender      *Sender
+	sem         chan struct{}
+	maxAttempts int
 }
 
 func NewCallbackProcessor(repo *db.CallbackRepository, sender *Sender) *Processor {
+	parallelismStr := os.Getenv("CALLBACK_PARALLELISM")
+	parallelism, err := strconv.Atoi(parallelismStr)
+	if err != nil || parallelismStr == "" {
+		parallelism = 1000
+	}
+
+	maxAttemptsStr := os.Getenv("MAX_ATTEMPTS")
+	maxAttempts, err := strconv.Atoi(maxAttemptsStr)
+	if err != nil || maxAttemptsStr == "" {
+		maxAttempts = 3
+	}
+
 	return &Processor{
-		repo:   repo,
-		sender: sender,
-		sem:    make(chan struct{}, 1000),
+		repo:        repo,
+		sender:      sender,
+		sem:         make(chan struct{}, parallelism),
+		maxAttempts: maxAttempts,
 	}
 }
-
-const maxAttempts = 3
 
 func (p *Processor) Process(ctx context.Context, message message.Callback) error {
 	log.Printf("Processing message: %+v", message)
