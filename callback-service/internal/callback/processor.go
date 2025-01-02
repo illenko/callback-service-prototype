@@ -11,8 +11,8 @@ import (
 )
 
 const (
-	DefaultParallelism = 1000
-	DefaultMaxAttempts = 3
+	defaultParallelism = 1000
+	defaultMaxAttempts = 3
 )
 
 type Processor struct {
@@ -23,14 +23,11 @@ type Processor struct {
 }
 
 func NewCallbackProcessor(repo *db.CallbackRepository, sender *Sender) *Processor {
-	parallelism := config.GetEnvInt("CALLBACK_PARALLELISM", DefaultParallelism)
-	maxAttempts := config.GetEnvInt("MAX_DELIVERY_ATTEMPTS", DefaultMaxAttempts)
-
 	return &Processor{
 		repo:        repo,
 		sender:      sender,
-		sem:         make(chan struct{}, parallelism),
-		maxAttempts: maxAttempts,
+		sem:         make(chan struct{}, config.GetEnvInt("CALLBACK_PROCESSING_PARALLELISM", defaultParallelism)),
+		maxAttempts: config.GetEnvInt("MAX_DELIVERY_ATTEMPTS", defaultMaxAttempts),
 	}
 }
 
@@ -40,6 +37,8 @@ func (p *Processor) Process(ctx context.Context, message message.Callback) error
 	p.sem <- struct{}{}
 	go func() {
 		defer func() { <-p.sem }()
+
+		callbackSendingErr := p.sender.Send(ctx, message.Url, message.Payload)
 
 		tx, err := p.repo.BeginTx(ctx)
 		if err != nil {
@@ -54,21 +53,20 @@ func (p *Processor) Process(ctx context.Context, message message.Callback) error
 			return
 		}
 
-		err = p.sender.Send(ctx, message.Url, message.Payload)
 		entity.DeliveryAttempts++
 
-		if err != nil {
-			log.Printf("Error sending callback: %v", err)
+		if callbackSendingErr != nil {
+			log.Printf("Error sending callback: %v", callbackSendingErr)
 
 			// Check if we have reached the max number of attempts
 			if entity.DeliveryAttempts >= p.maxAttempts {
 				log.Printf("Max delivery attempts reached for callback ID: %s", message.ID)
 				entity.ScheduledAt = nil
-				errorMsg := "Max delivery attempts reached. " + err.Error()
+				errorMsg := "Max delivery attempts reached. " + callbackSendingErr.Error()
 				entity.Error = &errorMsg
 			} else {
 				scheduledAt := time.Now().Add(time.Duration(entity.DeliveryAttempts) * 10 * time.Second)
-				errorMsg := err.Error()
+				errorMsg := callbackSendingErr.Error()
 				entity.ScheduledAt = &scheduledAt
 				entity.Error = &errorMsg
 			}

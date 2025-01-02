@@ -6,22 +6,35 @@ import (
 	"log"
 	"time"
 
+	"callback-service/internal/config"
 	"callback-service/internal/db"
 	"callback-service/internal/message"
 	"github.com/segmentio/kafka-go"
 )
 
+const (
+	defaultPollingIntervalMs = 500
+	defaultFetchSize         = 200
+)
+
 type Producer struct {
-	repo   *db.CallbackRepository
-	writer *kafka.Writer
+	repo            *db.CallbackRepository
+	writer          *kafka.Writer
+	pollingInterval time.Duration
+	fetchSize       int
 }
 
 func NewProducer(repo *db.CallbackRepository, writer *kafka.Writer) *Producer {
-	return &Producer{repo: repo, writer: writer}
+	return &Producer{
+		repo:            repo,
+		writer:          writer,
+		pollingInterval: time.Duration(config.GetEnvInt("CALLBACK_POLLING_INTERVAL_MS", defaultPollingIntervalMs)) * time.Millisecond,
+		fetchSize:       config.GetEnvInt("CALLBACK_FETCH_SIZE", defaultFetchSize),
+	}
 }
 
 func (p *Producer) Start(ctx context.Context) {
-	ticker := time.NewTicker(1 * time.Second)
+	ticker := time.NewTicker(p.pollingInterval)
 	defer ticker.Stop()
 
 	for {
@@ -44,7 +57,7 @@ func (p *Producer) process(ctx context.Context) {
 	}
 
 	log.Println("Fetching unprocessed callbacks")
-	callbacks, err := p.repo.GetUnprocessedCallbacks(ctx, tx, 100)
+	callbacks, err := p.repo.GetUnprocessedCallbacks(ctx, tx, p.fetchSize)
 	if err != nil {
 		log.Printf("Error fetching unprocessed callbacks: %v", err)
 		tx.Rollback(ctx)

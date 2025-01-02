@@ -6,7 +6,12 @@ import (
 	"log"
 	"time"
 
+	"callback-service/internal/config"
 	"github.com/go-resty/resty/v2"
+)
+
+const (
+	defaultTimeoutMs = 10_000
 )
 
 type Sender struct {
@@ -15,7 +20,8 @@ type Sender struct {
 
 func NewSender() *Sender {
 	return &Sender{
-		client: resty.New().SetTimeout(10 * time.Second),
+		client: resty.New().
+			SetTimeout(time.Duration(config.GetEnvInt("CALLBACK_TIMEOUT_MS", defaultTimeoutMs)) * time.Millisecond),
 	}
 }
 
