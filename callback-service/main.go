@@ -18,23 +18,11 @@ import (
 func main() {
 	time.Local = time.UTC
 
-	conn, err := db.GetConn()
-	if err != nil {
-		log.Fatal(err)
-	}
-	defer conn.Close()
+	dbConnStr := db.GetConnStr()
 
-	if err := db.RunMigrations(conn); err != nil {
-		log.Fatal(err)
-	}
+	db.RunMigrations(dbConnStr, "migrations")
 
-	kafkaURL := config.GetRequired("KAFKA_URL")
-	paymentEventsTopic := config.GetRequired("PAYMENT_EVENTS_TOPIC")
-	callbackMessagesTopic := config.GetRequired("CALLBACK_MESSAGES_TOPIC")
-	callbackServiceGroupID := config.GetRequired("CALLBACK_SERVICE_GROUP_ID")
-	serverPort := config.GetRequired("SERVER_PORT")
-
-	dbpool, err := db.GetPool()
+	dbpool, err := db.GetPool(dbConnStr)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -43,6 +31,12 @@ func main() {
 	repo := db.NewCallbackRepository(dbpool)
 
 	processor := event.NewProcessor(repo)
+
+	kafkaURL := config.GetRequired("KAFKA_URL")
+	paymentEventsTopic := config.GetRequired("PAYMENT_EVENTS_TOPIC")
+	callbackMessagesTopic := config.GetRequired("CALLBACK_MESSAGES_TOPIC")
+	callbackServiceGroupID := config.GetRequired("CALLBACK_SERVICE_GROUP_ID")
+	serverPort := config.GetRequired("SERVER_PORT")
 
 	eventReader := kafka.NewReader(kafkaURL, paymentEventsTopic, callbackServiceGroupID)
 	defer eventReader.Close()

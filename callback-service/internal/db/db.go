@@ -4,42 +4,33 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
-	"os"
+	"log"
 
+	"callback-service/internal/config"
 	"github.com/jackc/pgx/v5/pgxpool"
 	_ "github.com/lib/pq"
 	"github.com/pressly/goose/v3"
 )
 
-func GetConn() (*sql.DB, error) {
-	dbUser := os.Getenv("DB_USER")
-	dbPassword := os.Getenv("DB_PASSWORD")
-	dbName := os.Getenv("DB_NAME")
-	dbHost := os.Getenv("DB_HOST")
-	dbPort := os.Getenv("DB_PORT")
-	sslMode := os.Getenv("SSL_MODE")
+func GetConnStr() string {
+	return fmt.Sprintf("postgres://%s:%s@%s:%s/%s?sslmode=%s", config.GetRequired("DB_USER"),
+		config.GetRequired("DB_PASSWORD"), config.GetRequired("DB_HOST"), config.GetRequired("DB_PORT"),
+		config.GetRequired("DB_NAME"), config.GetRequired("SSL_MODE"))
+}
 
-	connStr := fmt.Sprintf("user=%s password=%s dbname=%s host=%s port=%s sslmode=%s", dbUser, dbPassword, dbName, dbHost, dbPort, sslMode)
+func RunMigrations(connStr, migrationsDir string) {
 	db, err := sql.Open("postgres", connStr)
 	if err != nil {
-		return nil, err
+		log.Fatal(err)
 	}
-	return db, nil
+	defer db.Close()
+
+	if err := goose.Up(db, migrationsDir); err != nil {
+		log.Fatal(err)
+	}
 }
 
-func RunMigrations(db *sql.DB) error {
-	return goose.Up(db, "migrations")
-}
-
-func GetPool() (*pgxpool.Pool, error) {
-	dbUser := os.Getenv("DB_USER")
-	dbPassword := os.Getenv("DB_PASSWORD")
-	dbName := os.Getenv("DB_NAME")
-	dbHost := os.Getenv("DB_HOST")
-	dbPort := os.Getenv("DB_PORT")
-	sslMode := os.Getenv("SSL_MODE")
-
-	connStr := fmt.Sprintf("postgres://%s:%s@%s:%s/%s?sslmode=%s", dbUser, dbPassword, dbHost, dbPort, dbName, sslMode)
+func GetPool(connStr string) (*pgxpool.Pool, error) {
 	dbpool, err := pgxpool.New(context.Background(), connStr)
 	if err != nil {
 		return nil, err
