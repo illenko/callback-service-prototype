@@ -11,8 +11,9 @@ import (
 )
 
 const (
-	defaultParallelism = 1000
-	defaultMaxAttempts = 3
+	defaultParallelism  = 1000
+	defaultMaxAttempts  = 3
+	defaultRetryDelayMs = 10_000
 )
 
 type Processor struct {
@@ -20,6 +21,7 @@ type Processor struct {
 	sender      *Sender
 	sem         chan struct{}
 	maxAttempts int
+	retryDelay  time.Duration
 }
 
 func NewCallbackProcessor(repo *db.CallbackRepository, sender *Sender) *Processor {
@@ -28,6 +30,7 @@ func NewCallbackProcessor(repo *db.CallbackRepository, sender *Sender) *Processo
 		sender:      sender,
 		sem:         make(chan struct{}, config.GetInt("CALLBACK_PROCESSING_PARALLELISM", defaultParallelism)),
 		maxAttempts: config.GetInt("MAX_DELIVERY_ATTEMPTS", defaultMaxAttempts),
+		retryDelay:  time.Duration(config.GetInt("CALLBACK_RETRY_DELAY_MS", defaultRetryDelayMs)) * time.Millisecond,
 	}
 }
 
@@ -65,10 +68,13 @@ func (p *Processor) Process(ctx context.Context, message message.Callback) error
 				errorMsg := "Max delivery attempts reached. " + callbackSendingErr.Error()
 				entity.Error = &errorMsg
 			} else {
-				scheduledAt := time.Now().Add(time.Duration(entity.DeliveryAttempts) * 10 * time.Second)
+				scheduledAt := time.Now().Add(time.Duration(entity.DeliveryAttempts) * p.retryDelay)
 				errorMsg := callbackSendingErr.Error()
 				entity.ScheduledAt = &scheduledAt
 				entity.Error = &errorMsg
+
+				// Reset publish attempts
+				entity.PublishAttempts = 0
 			}
 
 		} else {

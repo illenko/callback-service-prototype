@@ -25,7 +25,8 @@ func ReadPaymentEvents(reader *kafka.Reader, processor *event.Processor) {
 	for {
 		m, err := reader.ReadMessage(context.Background())
 		if err != nil {
-			log.Fatalln(err)
+			log.Println(err)
+			continue
 		}
 		fmt.Printf("message at topic:%v partition:%v offset:%v	%s = %s\n", m.Topic, m.Partition, m.Offset, string(m.Key), string(m.Value))
 
@@ -47,7 +48,8 @@ func ReadCallbackMessages(reader *kafka.Reader, processor *callback.Processor) {
 	for {
 		m, err := reader.ReadMessage(context.Background())
 		if err != nil {
-			log.Fatalln(err)
+			log.Println(err)
+			continue
 		}
 		fmt.Printf("message at topic:%v partition:%v offset:%v	%s = %s\n", m.Topic, m.Partition, m.Offset, string(m.Key), string(m.Value))
 

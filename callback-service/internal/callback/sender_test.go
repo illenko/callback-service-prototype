@@ -5,7 +5,6 @@ import (
 	"testing"
 	"time"
 
-	"callback-service/internal/callback"
 	"github.com/h2non/gock"
 	"github.com/stretchr/testify/assert"
 )
@@ -55,7 +54,7 @@ func TestSender_Send(t *testing.T) {
 			defer gock.Off()
 			tt.mockResponse()
 
-			sender := callback.NewSender()
+			sender := NewSender()
 			ctx := context.Background()
 			url := "http://example.com/callback"
 			payload := `{"data":"test"}`

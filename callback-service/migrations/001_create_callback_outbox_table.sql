@@ -10,5 +10,6 @@ CREATE TABLE callback_message
     scheduled_at      TIMESTAMP,
     delivered_at      TIMESTAMP,
     delivery_attempts INT           NOT NULL DEFAULT 0,
+    publish_attempts  INT           NOT NULL DEFAULT 0,
     error             TEXT          NULL
 );

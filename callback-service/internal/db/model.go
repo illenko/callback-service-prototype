@@ -16,5 +16,6 @@ type CallbackMessageEntity struct {
 	ScheduledAt      *time.Time
 	DeliveredAt      *time.Time
 	DeliveryAttempts int
+	PublishAttempts  int
 	Error            *string
 }

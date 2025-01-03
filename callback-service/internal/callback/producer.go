@@ -13,23 +13,29 @@ import (
 )
 
 const (
-	defaultPollingIntervalMs = 500
-	defaultFetchSize         = 200
+	defaultPollingIntervalMs   = 500
+	defaultFetchSize           = 200
+	defaultRetryPublishDelayMs = 10_000
+	defaultMaxPublishAttempts  = 3
 )
 
 type Producer struct {
-	repo            *db.CallbackRepository
-	writer          *kafka.Writer
-	pollingInterval time.Duration
-	fetchSize       int
+	repo               *db.CallbackRepository
+	writer             *kafka.Writer
+	pollingInterval    time.Duration
+	fetchSize          int
+	retryDelay         time.Duration
+	maxPublishAttempts int
 }
 
 func NewProducer(repo *db.CallbackRepository, writer *kafka.Writer) *Producer {
 	return &Producer{
-		repo:            repo,
-		writer:          writer,
-		pollingInterval: time.Duration(config.GetInt("CALLBACK_POLLING_INTERVAL_MS", defaultPollingIntervalMs)) * time.Millisecond,
-		fetchSize:       config.GetInt("CALLBACK_FETCH_SIZE", defaultFetchSize),
+		repo:               repo,
+		writer:             writer,
+		pollingInterval:    time.Duration(config.GetInt("CALLBACK_POLLING_INTERVAL_MS", defaultPollingIntervalMs)) * time.Millisecond,
+		fetchSize:          config.GetInt("CALLBACK_FETCH_SIZE", defaultFetchSize),
+		retryDelay:         time.Duration(config.GetInt("CALLBACK_RETRY_PUBLISH_DELAY_MS", defaultRetryPublishDelayMs)) * time.Millisecond,
+		maxPublishAttempts: config.GetInt("MAX_PUBLISH_ATTEMPTS", defaultMaxPublishAttempts),
 	}
 }
 
@@ -103,12 +109,23 @@ func (p *Producer) process(ctx context.Context) {
 	for _, callback := range callbacks {
 		log.Printf("Clear scheduled_at for callback ID %s", callback.ID)
 
-		callback.ScheduledAt = nil
+		callback.PublishAttempts++
 
 		if err != nil {
+			// failed to post to Kafka
 			errMsg := err.Error()
 			callback.Error = &errMsg
+
+			if callback.PublishAttempts >= 3 {
+				log.Printf("Max attempts reached for callback ID %s", callback.ID)
+				callback.ScheduledAt = nil
+			} else {
+				// schedule for retry
+				scheduledAt := time.Now().Add(time.Duration(callback.PublishAttempts) * 10 * time.Second)
+				callback.ScheduledAt = &scheduledAt
+			}
 		} else {
+			callback.ScheduledAt = nil
 			callback.Error = nil
 		}
 
