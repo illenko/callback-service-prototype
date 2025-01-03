@@ -1,13 +1,15 @@
 package callback
 
 import (
+	"bytes"
 	"context"
 	"fmt"
+	"io"
 	"log"
+	"net/http"
 	"time"
 
 	"callback-service/internal/config"
-	"github.com/go-resty/resty/v2"
 )
 
 const (
@@ -15,33 +17,46 @@ const (
 )
 
 type Sender struct {
-	client *resty.Client
+	client *http.Client
 }
 
 func NewSender() *Sender {
+	timeout := time.Duration(config.GetInt("CALLBACK_TIMEOUT_MS", defaultTimeoutMs)) * time.Millisecond
 	return &Sender{
-		client: resty.New().
-			SetTimeout(time.Duration(config.GetEnvInt("CALLBACK_TIMEOUT_MS", defaultTimeoutMs)) * time.Millisecond),
+		client: &http.Client{Timeout: timeout},
 	}
 }
 
 func (s *Sender) Send(ctx context.Context, url, payload string) error {
 	log.Printf("Sending callback to URL: %s", url)
+	log.Printf("Request payload: %s", payload)
 
-	resp, err := s.client.R().
-		SetContext(ctx).
-		SetHeader("Content-Type", "application/json").
-		SetBody(payload).
-		Post(url)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewBuffer([]byte(payload)))
+	if err != nil {
+		log.Printf("Error creating request: %v", err)
+		return err
+	}
+	req.Header.Set("Content-Type", "application/json")
 
+	resp, err := s.client.Do(req)
 	if err != nil {
 		log.Printf("Error sending callback: %v", err)
 		return err
 	}
+	defer resp.Body.Close()
 
-	if resp.IsError() {
-		log.Printf("Received error response: %s", resp.Status())
-		return fmt.Errorf("error response: %s", resp.Status())
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		log.Printf("Error reading response body: %v", err)
+		return err
+	}
+
+	log.Printf("Response status: %s", resp.Status)
+	log.Printf("Response body: %s", string(respBody))
+
+	if resp.StatusCode >= 400 {
+		log.Printf("Received error response: %s", resp.Status)
+		return fmt.Errorf("error response: %s", resp.Status)
 	}
 
 	log.Printf("Successfully sent callback to URL: %s", url)

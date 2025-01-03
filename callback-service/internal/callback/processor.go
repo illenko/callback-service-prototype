@@ -26,8 +26,8 @@ func NewCallbackProcessor(repo *db.CallbackRepository, sender *Sender) *Processo
 	return &Processor{
 		repo:        repo,
 		sender:      sender,
-		sem:         make(chan struct{}, config.GetEnvInt("CALLBACK_PROCESSING_PARALLELISM", defaultParallelism)),
-		maxAttempts: config.GetEnvInt("MAX_DELIVERY_ATTEMPTS", defaultMaxAttempts),
+		sem:         make(chan struct{}, config.GetInt("CALLBACK_PROCESSING_PARALLELISM", defaultParallelism)),
+		maxAttempts: config.GetInt("MAX_DELIVERY_ATTEMPTS", defaultMaxAttempts),
 	}
 }
 

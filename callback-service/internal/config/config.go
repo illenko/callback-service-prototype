@@ -14,7 +14,7 @@ func GetRequired(key string) string {
 	return value
 }
 
-func GetEnvInt(key string, defaultValue int) int {
+func GetInt(key string, defaultValue int) int {
 	valueStr := os.Getenv(key)
 	value, err := strconv.Atoi(valueStr)
 	if err != nil || valueStr == "" {

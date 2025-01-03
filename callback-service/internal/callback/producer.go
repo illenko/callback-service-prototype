@@ -28,8 +28,8 @@ func NewProducer(repo *db.CallbackRepository, writer *kafka.Writer) *Producer {
 	return &Producer{
 		repo:            repo,
 		writer:          writer,
-		pollingInterval: time.Duration(config.GetEnvInt("CALLBACK_POLLING_INTERVAL_MS", defaultPollingIntervalMs)) * time.Millisecond,
-		fetchSize:       config.GetEnvInt("CALLBACK_FETCH_SIZE", defaultFetchSize),
+		pollingInterval: time.Duration(config.GetInt("CALLBACK_POLLING_INTERVAL_MS", defaultPollingIntervalMs)) * time.Millisecond,
+		fetchSize:       config.GetInt("CALLBACK_FETCH_SIZE", defaultFetchSize),
 	}
 }
 

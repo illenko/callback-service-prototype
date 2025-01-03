@@ -84,3 +84,17 @@ func (r *CallbackRepository) SelectForUpdateByID(ctx context.Context, tx pgx.Tx,
 	}
 	return &entity, nil
 }
+
+func (r *CallbackRepository) SelectByID(ctx context.Context, id uuid.UUID) (*CallbackMessageEntity, error) {
+	query := `SELECT id, payment_id, payload, url, delivery_attempts, scheduled_at, delivered_at, error, created_at, updated_at
+	          FROM callback_message
+	          WHERE id = $1`
+	row := r.pool.QueryRow(ctx, query, id)
+
+	var entity CallbackMessageEntity
+	err := row.Scan(&entity.ID, &entity.PaymentID, &entity.Payload, &entity.Url, &entity.DeliveryAttempts, &entity.ScheduledAt, &entity.DeliveredAt, &entity.Error, &entity.CreatedAt, &entity.UpdatedAt)
+	if err != nil {
+		return nil, err
+	}
+	return &entity, nil
+}

@@ -13,8 +13,8 @@ const (
 )
 
 func NewWriter(kafkaURL, topic string) *kafka.Writer {
-	batchSize := config.GetEnvInt("KAFKA_WRITER_BATCH_SIZE", DefaultBatchSize)
-	batchTimeout := config.GetEnvInt("KAFKA_WRITER_BATCH_TIMEOUT", DefaultBatchTimeout)
+	batchSize := config.GetInt("KAFKA_WRITER_BATCH_SIZE", DefaultBatchSize)
+	batchTimeout := config.GetInt("KAFKA_WRITER_BATCH_TIMEOUT", DefaultBatchTimeout)
 
 	return &kafka.Writer{
 		Addr:                   kafka.TCP(kafkaURL),
