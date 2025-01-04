@@ -68,6 +68,42 @@ The project uses the following technologies:
        transaction.
     10. Release semaphore: Release the semaphore after processing is complete.
 
+```mermaid
+flowchart TD
+    A[Start] --> B[Consume messages from payment-events topic]
+    B --> C[Unmarshal messages to PaymentEvent struct]
+    C --> D[Process PaymentEvent]
+    D --> E[Create Callback payload]
+    E --> F[Insert Callback message into DB]
+    F --> G[Fetch unprocessed callbacks from DB]
+    G --> H[Create Kafka message for each callback]
+    H --> I[Send Kafka messages to callback-messages topic]
+    I --> J{Kafka write result}
+    J -->|Fail| K[Increment PublishAttempts]
+    K --> L{PublishAttempts max?}
+    L -->|Yes| M[Clear scheduled_at and set Error]
+    L -->|No| N[Schedule callback for retry]
+    J -->|Success| O[Clear scheduled_at and Error]
+    O --> P[Commit DB transaction]
+    P --> Q[Process messages from callback-messages topic]
+    Q --> R[Acquire semaphore]
+    R --> S[Send callback message using Sender]
+    S --> T[Start new DB transaction]
+    T --> U[Fetch callback for update]
+    U --> V[Increment DeliveryAttempts]
+    V --> W{Sending callback result}
+    W -->|Fail| X[Log error]
+    X --> Y{DeliveryAttempts max?}
+    Y -->|Yes| Z[Clear ScheduledAt and set Error]
+    Y -->|No| AA[Schedule callback for retry and reset PublishAttempts]
+    W -->|Success| AB[Log success]
+    AB --> AC[Set DeliveredAt, clear ScheduledAt and Error]
+    AC --> AD[Update callback message in DB]
+    AD --> AE[Commit transaction]
+    AE --> AF[Release semaphore]
+    AF --> AG[End]
+```
+
 ## Components
 
 ```mermaid
