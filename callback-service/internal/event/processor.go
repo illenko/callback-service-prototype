@@ -23,8 +23,9 @@ func (p *Processor) Process(ctx context.Context, event message.PaymentEvent) err
 	log.Printf("Processing event: %+v", event)
 
 	callbackPayload := payload.Callback{
-		ID:     event.Payload.ID,
-		Status: event.Payload.Status,
+		ID:        event.ID,
+		PaymentId: event.Payload.ID,
+		Status:    event.Payload.Status,
 	}
 
 	payloadBytes, err := json.Marshal(callbackPayload)

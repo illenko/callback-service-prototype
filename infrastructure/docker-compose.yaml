@@ -44,23 +44,24 @@ services:
     depends_on:
       - kafka
 
-  prometheus:
-    container_name: prometheus
-    image: prom/prometheus
-    restart: always
-    command:
-      - --config.file=/etc/prometheus/prometheus.yaml
-      - --enable-feature=exemplar-storage
-      - --web.enable-remote-write-receiver
-    volumes:
-      - ./prometheus/prometheus.yaml:/etc/prometheus/prometheus.yaml
-    ports:
-      - "9090:9090"
-
   grafana:
     container_name: grafana
     image: grafana/grafana
+    environment:
+      - GF_INSTALL_PLUGINS=https://github.com/VictoriaMetrics/victoriametrics-datasource/releases/download/v0.10.3/victoriametrics-datasource-v0.10.3.zip;victoriametrics-datasource
+      - GF_PLUGINS_ALLOW_LOADING_UNSIGNED_PLUGINS=victoriametrics-datasource
     volumes:
       - ./grafana/datasources.yaml:/etc/grafana/provisioning/datasources/datasources.yaml
     ports:
       - "3005:3000"
+
+  victoriametrics:
+    image: victoriametrics/victoria-metrics
+    container_name: victoriametrics
+    ports:
+      - "8428:8428"
+    command:
+      - '--retentionPeriod=1'
+      - '--storageDataPath=/victoria-metrics-data'
+    volumes:
+      - ./victoriametrics/data:/victoria-metrics-data

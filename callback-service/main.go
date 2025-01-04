@@ -11,6 +11,7 @@ import (
 	"callback-service/internal/db"
 	"callback-service/internal/event"
 	"callback-service/internal/kafka"
+	"github.com/VictoriaMetrics/metrics"
 
 	_ "github.com/joho/godotenv/autoload"
 )
@@ -54,8 +55,15 @@ func main() {
 
 	go kafka.ReadCallbackMessages(kafka.NewReader(kafkaURL, callbackMessagesTopic, callbackServiceGroupID), callbackProcessor)
 
+	metricsUrl := config.GetRequired("VICTORIAMETRICS_PUSH_URL")
+	metricsInterval := time.Duration(config.GetInt("VICTORIAMETRICS_PUSH_INTERVAL_MS", 10_000)) * time.Millisecond
+	metricsLabels := config.GetRequired("VICTORIA_METRICS_COMMON_LABELS")
+
+	metrics.InitPush(metricsUrl, metricsInterval, metricsLabels, true)
+
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /liveness", func(w http.ResponseWriter, r *http.Request) {
+		metrics.GetOrCreateCounter("liveliness_check").Inc()
 		w.WriteHeader(http.StatusOK)
 	})
 	log.Fatal(http.ListenAndServe(":"+serverPort, mux))

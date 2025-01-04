@@ -3,6 +3,7 @@ module callback-service
 go 1.23.0
 
 require (
+	github.com/VictoriaMetrics/metrics v1.35.1
 	github.com/google/uuid v1.6.0
 	github.com/h2non/gock v1.2.0
 	github.com/jackc/pgx/v5 v5.7.2
@@ -60,6 +61,8 @@ require (
 	github.com/sirupsen/logrus v1.9.3 // indirect
 	github.com/tklauser/go-sysconf v0.3.12 // indirect
 	github.com/tklauser/numcpus v0.6.1 // indirect
+	github.com/valyala/fastrand v1.1.0 // indirect
+	github.com/valyala/histogram v1.2.0 // indirect
 	github.com/yusufpapurcu/wmi v1.2.3 // indirect
 	go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp v0.49.0 // indirect
 	go.opentelemetry.io/otel v1.26.0 // indirect

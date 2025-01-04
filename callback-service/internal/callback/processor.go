@@ -8,12 +8,21 @@ import (
 	"callback-service/internal/config"
 	"callback-service/internal/db"
 	"callback-service/internal/message"
+	"github.com/VictoriaMetrics/metrics"
 )
 
 const (
 	defaultParallelism  = 1000
 	defaultMaxAttempts  = 3
 	defaultRetryDelayMs = 10_000
+)
+
+var (
+	processErrorMetricSending = metrics.GetOrCreateCounter(`callback_processor_errors_total{stage="sending"}`)
+	processErrorMetricTx      = metrics.GetOrCreateCounter(`callback_processor_errors_total{stage="transaction"}`)
+	processErrorMetricUpdate  = metrics.GetOrCreateCounter(`callback_processor_errors_total{stage="update"}`)
+	processSuccessMetric      = metrics.GetOrCreateCounter(`callback_processor_successful_total`)
+	maxAttemptsMetric         = metrics.GetOrCreateCounter(`callback_processor_max_attempts_total`)
 )
 
 type Processor struct {
@@ -42,10 +51,15 @@ func (p *Processor) Process(ctx context.Context, message message.Callback) error
 		defer func() { <-p.sem }()
 
 		callbackSendingErr := p.sender.Send(ctx, message.Url, message.Payload)
+		if callbackSendingErr != nil {
+			log.Printf("Error sending callback: %v", callbackSendingErr)
+			processErrorMetricSending.Inc()
+		}
 
 		tx, err := p.repo.BeginTx(ctx)
 		if err != nil {
 			log.Printf("Error starting transaction: %v", err)
+			processErrorMetricTx.Inc()
 			return
 		}
 
@@ -53,20 +67,20 @@ func (p *Processor) Process(ctx context.Context, message message.Callback) error
 		if err != nil {
 			log.Printf("Error selecting for update by ID: %v", err)
 			tx.Rollback(ctx)
+			processErrorMetricTx.Inc()
 			return
 		}
 
 		entity.DeliveryAttempts++
 
 		if callbackSendingErr != nil {
-			log.Printf("Error sending callback: %v", callbackSendingErr)
-
 			// Check if we have reached the max number of attempts
 			if entity.DeliveryAttempts >= p.maxAttempts {
 				log.Printf("Max delivery attempts reached for callback ID: %s", message.ID)
 				entity.ScheduledAt = nil
 				errorMsg := "Max delivery attempts reached. " + callbackSendingErr.Error()
 				entity.Error = &errorMsg
+				maxAttemptsMetric.Inc()
 			} else {
 				scheduledAt := time.Now().Add(time.Duration(entity.DeliveryAttempts) * p.retryDelay)
 				errorMsg := callbackSendingErr.Error()
@@ -93,14 +107,17 @@ func (p *Processor) Process(ctx context.Context, message message.Callback) error
 		if err != nil {
 			log.Printf("Error updating callback: %v", err)
 			tx.Rollback(ctx)
+			processErrorMetricUpdate.Inc()
 			return
 		}
 
 		if err := tx.Commit(ctx); err != nil {
 			log.Printf("Error committing transaction: %v", err)
 			tx.Rollback(ctx)
+			processErrorMetricTx.Inc()
 		} else {
 			log.Println("Transaction committed successfully")
+			processSuccessMetric.Inc()
 		}
 	}()
 

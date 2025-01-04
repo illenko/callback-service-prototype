@@ -17,6 +17,7 @@ type Payment struct {
 }
 
 type Callback struct {
-	ID     uuid.UUID `json:"id"`
-	Status string    `json:"status"`
+	ID        uuid.UUID `json:"id"`
+	PaymentId uuid.UUID `json:"paymentId"`
+	Status    string    `json:"status"`
 }

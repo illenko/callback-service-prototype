@@ -2,10 +2,20 @@ package db
 
 import (
 	"context"
+	"time"
+
+	"github.com/VictoriaMetrics/metrics"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
-	"time"
+)
+
+var (
+	createLatencyHistogram          = metrics.GetOrCreateHistogram(`repository_latency_milliseconds{name="callbackRepository",method="create"}`)
+	getUnprocessedLatencyHistogram  = metrics.GetOrCreateHistogram(`repository_latency_milliseconds{name="callbackRepository",method="getUnprocessedCallbacks"}`)
+	updateLatencyHistogram          = metrics.GetOrCreateHistogram(`repository_latency_milliseconds{name="callbackRepository",method="update"}`)
+	selectForUpdateLatencyHistogram = metrics.GetOrCreateHistogram(`repository_latency_milliseconds{name="callbackRepository",method="selectForUpdateById"}`)
+	selectByIDLatencyHistogram      = metrics.GetOrCreateHistogram(`repository_latency_milliseconds{name="callbackRepository",method="selectById"}`)
 )
 
 type CallbackRepository struct {
@@ -25,8 +35,10 @@ func (r *CallbackRepository) BeginTx(ctx context.Context) (pgx.Tx, error) {
 }
 
 func (r *CallbackRepository) Create(ctx context.Context, entity *CallbackMessageEntity) (*CallbackMessageEntity, error) {
-	now := time.Now()
+	start := time.Now()
+	defer createLatencyHistogram.UpdateDuration(start)
 
+	now := time.Now()
 	query := `INSERT INTO callback_message (id, payment_id, url, payload, created_at, updated_at, scheduled_at, delivery_attempts, publish_attempts) 
 	          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING id`
 	err := r.pool.QueryRow(ctx, query, entity.ID, entity.PaymentID, entity.Url, entity.Payload, now, now, entity.ScheduledAt, entity.DeliveryAttempts, entity.PublishAttempts).Scan(&entity.ID)
@@ -38,6 +50,9 @@ func (r *CallbackRepository) Create(ctx context.Context, entity *CallbackMessage
 }
 
 func (r *CallbackRepository) GetUnprocessedCallbacks(ctx context.Context, tx pgx.Tx, limit int) ([]*CallbackMessageEntity, error) {
+	start := time.Now()
+	defer getUnprocessedLatencyHistogram.UpdateDuration(start)
+
 	query := `SELECT id, payment_id, payload, url, delivery_attempts, publish_attempts
 	          FROM callback_message 
 	          WHERE scheduled_at IS NOT NULL AND scheduled_at <= NOW()
@@ -61,6 +76,9 @@ func (r *CallbackRepository) GetUnprocessedCallbacks(ctx context.Context, tx pgx
 }
 
 func (r *CallbackRepository) Update(ctx context.Context, tx pgx.Tx, entity *CallbackMessageEntity) error {
+	start := time.Now()
+	defer updateLatencyHistogram.UpdateDuration(start)
+
 	query := `UPDATE callback_message 
 	          SET payment_id = $1, url = $2, payload = $3, updated_at = $4, 
 	              scheduled_at = $5, delivered_at = $6, delivery_attempts = $7, publish_attempts = $8, error = $9
@@ -71,14 +89,17 @@ func (r *CallbackRepository) Update(ctx context.Context, tx pgx.Tx, entity *Call
 }
 
 func (r *CallbackRepository) SelectForUpdateByID(ctx context.Context, tx pgx.Tx, id uuid.UUID) (*CallbackMessageEntity, error) {
-	query := `SELECT id, payment_id, payload, url, delivery_attempts, publish_attempts, scheduled_at, delivered_at, error, created_at, updated_at
+	start := time.Now()
+	defer selectForUpdateLatencyHistogram.UpdateDuration(start)
+
+	query := `SELECT id, payment_id, payload, url, delivery_attempts, publish_attempts, scheduled_at, delivered_at, error, created_at, updated_at, error
 	          FROM callback_message
 	          WHERE id = $1
 	          FOR UPDATE`
 	row := tx.QueryRow(ctx, query, id)
 
 	var entity CallbackMessageEntity
-	err := row.Scan(&entity.ID, &entity.PaymentID, &entity.Payload, &entity.Url, &entity.DeliveryAttempts, &entity.PublishAttempts, &entity.ScheduledAt, &entity.DeliveredAt, &entity.Error, &entity.CreatedAt, &entity.UpdatedAt)
+	err := row.Scan(&entity.ID, &entity.PaymentID, &entity.Payload, &entity.Url, &entity.DeliveryAttempts, &entity.PublishAttempts, &entity.ScheduledAt, &entity.DeliveredAt, &entity.Error, &entity.CreatedAt, &entity.UpdatedAt, &entity.Error)
 	if err != nil {
 		return nil, err
 	}
@@ -86,6 +107,9 @@ func (r *CallbackRepository) SelectForUpdateByID(ctx context.Context, tx pgx.Tx,
 }
 
 func (r *CallbackRepository) SelectByID(ctx context.Context, id uuid.UUID) (*CallbackMessageEntity, error) {
+	start := time.Now()
+	defer selectByIDLatencyHistogram.UpdateDuration(start)
+
 	query := `SELECT id, payment_id, payload, url, delivery_attempts, publish_attempts, scheduled_at, delivered_at, error, created_at, updated_at
 	          FROM callback_message
 	          WHERE id = $1`
