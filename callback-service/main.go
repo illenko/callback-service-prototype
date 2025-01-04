@@ -3,7 +3,9 @@ package main
 import (
 	"context"
 	"log"
+	"log/slog"
 	"net/http"
+	"os"
 	"time"
 
 	"callback-service/internal/callback"
@@ -18,6 +20,8 @@ import (
 
 func main() {
 	time.Local = time.UTC
+
+	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
 
 	dbConnStr := db.GetConnStr()
 
@@ -51,7 +55,7 @@ func main() {
 	go callbackProducer.Start(context.Background())
 
 	callbackSender := callback.NewSender()
-	callbackProcessor := callback.NewCallbackProcessor(repo, callbackSender)
+	callbackProcessor := callback.NewCallbackProcessor(repo, callbackSender, logger)
 
 	go kafka.ReadCallbackMessages(kafka.NewReader(kafkaURL, callbackMessagesTopic, callbackServiceGroupID), callbackProcessor)
 
