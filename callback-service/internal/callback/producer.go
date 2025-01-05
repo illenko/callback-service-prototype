@@ -3,13 +3,15 @@ package callback
 import (
 	"context"
 	"encoding/json"
-	"log"
+	"log/slog"
 	"time"
 
 	"callback-service/internal/config"
 	"callback-service/internal/db"
+	"callback-service/internal/logcontext"
 	"callback-service/internal/message"
 	"github.com/VictoriaMetrics/metrics"
+	"github.com/google/uuid"
 	"github.com/segmentio/kafka-go"
 )
 
@@ -21,15 +23,16 @@ const (
 )
 
 var (
-	beginTxErrorMetric        = metrics.GetOrCreateCounter(`callback_producer_errors_total{stage="begin_tx"}`)
-	fetchCallbacksErrorMetric = metrics.GetOrCreateCounter(`callback_producer_errors_total{stage="fetch_callbacks"}`)
-	writeKafkaErrorMetric     = metrics.GetOrCreateCounter(`callback_producer_errors_total{stage="write_kafka"}`)
-	updateCallbackErrorMetric = metrics.GetOrCreateCounter(`callback_producer_errors_total{stage="update_callback"}`)
-	commitTxErrorMetric       = metrics.GetOrCreateCounter(`callback_producer_errors_total{stage="commit_tx"}`)
-	noCallbacksMetric         = metrics.GetOrCreateCounter(`callback_producer_no_callbacks_total`)
-	maxAttemptsReachedMetric  = metrics.GetOrCreateCounter(`callback_producer_max_attempts_reached_total`)
-	successfulUpdatesMetric   = metrics.GetOrCreateCounter(`callback_producer_successful_updates_total`)
-	commitsMetric             = metrics.GetOrCreateCounter(`callback_producer_commits_total`)
+	// producer batch metrics
+	producerErrorFetchingCounter = metrics.GetOrCreateCounter(`callback_producer_total{result="fetching_failed"}`)
+	producerErrorKafkaCounter    = metrics.GetOrCreateCounter(`callback_producer_total{result="publish_failed"}`)
+	producerErrorUpdateCounter   = metrics.GetOrCreateCounter(`callback_producer_total{result="db_update_failed"}`)
+	producerSuccessCounter       = metrics.GetOrCreateCounter(`callback_producer_total{result="success"}`)
+
+	// producer per message metrics
+	producerMessagesPublishedCounter   = metrics.GetOrCreateCounter(`callback_producer_messages_total{result="published"}`)
+	producerMessagesMaxAttemptsCounter = metrics.GetOrCreateCounter(`callback_producer_messages_total{result="max_attempts_reached"}`)
+	producerMessagesRescheduledCounter = metrics.GetOrCreateCounter(`callback_producer_messages_total{result="rescheduled"}`)
 )
 
 type Producer struct {
@@ -39,9 +42,10 @@ type Producer struct {
 	fetchSize          int
 	retryDelay         time.Duration
 	maxPublishAttempts int
+	logger             *slog.Logger
 }
 
-func NewProducer(repo *db.CallbackRepository, writer *kafka.Writer) *Producer {
+func NewProducer(repo *db.CallbackRepository, writer *kafka.Writer, logger *slog.Logger) *Producer {
 	return &Producer{
 		repo:               repo,
 		writer:             writer,
@@ -49,53 +53,121 @@ func NewProducer(repo *db.CallbackRepository, writer *kafka.Writer) *Producer {
 		fetchSize:          config.GetInt("CALLBACK_FETCH_SIZE", defaultFetchSize),
 		retryDelay:         time.Duration(config.GetInt("CALLBACK_RETRY_PUBLISH_DELAY_MS", defaultRetryPublishDelayMs)) * time.Millisecond,
 		maxPublishAttempts: config.GetInt("MAX_PUBLISH_ATTEMPTS", defaultMaxPublishAttempts),
+		logger:             logger,
 	}
 }
 
 func (p *Producer) Start(ctx context.Context) {
-	ticker := time.NewTicker(p.pollingInterval)
-	defer ticker.Stop()
+	go func() {
+		ticker := time.NewTicker(p.pollingInterval)
+		defer ticker.Stop()
 
-	for {
-		select {
-		case <-ticker.C:
-			p.process(ctx)
-		case <-ctx.Done():
-			log.Println("Context done, stopping producer")
-			return
+		for {
+			select {
+			case <-ticker.C:
+				p.process(ctx)
+			case <-ctx.Done():
+				p.logger.InfoContext(ctx, "Context done, stopping producer")
+				return
+			}
 		}
-	}
+	}()
 }
 
 func (p *Producer) process(ctx context.Context) {
-	log.Println("Starting transaction")
+	// set runId as a correlation id for all logs in scope
+	ctx = logcontext.AppendCtx(ctx, slog.String("runId", uuid.New().String()))
+
+	p.logger.InfoContext(ctx, "Starting transaction")
 	tx, err := p.repo.BeginTx(ctx)
 	if err != nil {
-		log.Printf("Error starting transaction: %v", err)
-		beginTxErrorMetric.Inc()
+		p.logger.ErrorContext(ctx, "Error starting transaction", "error", err)
+		producerErrorFetchingCounter.Inc()
 		return
 	}
 
-	log.Println("Fetching unprocessed callbacks")
+	defer tx.Rollback(ctx)
+
+	p.logger.InfoContext(ctx, "Fetching unprocessed callbacks")
 	callbacks, err := p.repo.GetUnprocessedCallbacks(ctx, tx, p.fetchSize)
 	if err != nil {
-		log.Printf("Error fetching unprocessed callbacks: %v", err)
-		tx.Rollback(ctx)
-		fetchCallbacksErrorMetric.Inc()
+		p.logger.ErrorContext(ctx, "Error fetching unprocessed callbacks", "error", err)
+		producerErrorFetchingCounter.Inc()
 		return
 	}
 
 	if len(callbacks) == 0 {
-		log.Println("No unprocessed callbacks found")
-		tx.Commit(ctx)
-		noCallbacksMetric.Inc()
+		p.logger.InfoContext(ctx, "No unprocessed callbacks found")
+		producerSuccessCounter.Inc()
 		return
+	} else {
+		kafkaMessages := p.toKafkaMessages(ctx, callbacks)
+
+		p.logger.InfoContext(ctx, "Writing messages to Kafka")
+
+		err = p.writer.WriteMessages(ctx, kafkaMessages...)
+		if err != nil {
+			p.logger.ErrorContext(ctx, "Error writing messages to Kafka", "error", err)
+			producerErrorKafkaCounter.Inc()
+		}
+
+		for _, callback := range callbacks {
+			messageCtx := logcontext.AppendCtx(ctx, slog.String("id", callback.ID.String()))
+
+			p.logger.InfoContext(messageCtx, "Update callback message values")
+
+			callback.PublishAttempts++
+
+			if err != nil {
+				errMsg := err.Error()
+				callback.Error = &errMsg
+
+				if callback.PublishAttempts >= p.maxPublishAttempts {
+					p.logger.WarnContext(messageCtx, "Max attempts reached for callback")
+					callback.ScheduledAt = nil
+
+					producerMessagesMaxAttemptsCounter.Inc()
+				} else {
+					scheduledAt := time.Now().Add(time.Duration(callback.PublishAttempts) * p.retryDelay)
+					callback.ScheduledAt = &scheduledAt
+
+					producerMessagesRescheduledCounter.Inc()
+				}
+			} else {
+				callback.ScheduledAt = nil
+				callback.Error = nil
+
+				producerMessagesPublishedCounter.Inc()
+			}
+
+			err := p.repo.Update(messageCtx, tx, callback)
+			if err != nil {
+				p.logger.ErrorContext(messageCtx, "Error updating callback", "error", err)
+
+				return
+			} else {
+				p.logger.InfoContext(messageCtx, "Updated callback entity values", "value", callback)
+			}
+		}
 	}
 
+	if err := tx.Commit(ctx); err != nil {
+		p.logger.ErrorContext(ctx, "Error committing transaction", "error", err)
+
+		producerErrorUpdateCounter.Inc()
+	} else {
+		p.logger.InfoContext(ctx, "Transaction committed successfully")
+
+		producerSuccessCounter.Inc()
+	}
+
+}
+
+func (p *Producer) toKafkaMessages(ctx context.Context, callbacks []*db.CallbackMessageEntity) []kafka.Message {
 	var kafkaMessages []kafka.Message
 
 	for _, entity := range callbacks {
-		log.Printf("Preparing Kafka message for callback ID %s", entity.ID)
+		p.logger.InfoContext(ctx, "Preparing Kafka message for callback ID", "id", entity.ID)
 
 		callbackMessage := message.Callback{
 			ID:        entity.ID,
@@ -105,7 +177,6 @@ func (p *Producer) process(ctx context.Context) {
 			Attempts:  entity.DeliveryAttempts,
 		}
 
-		// todo: add error handling
 		messageBytes, _ := json.Marshal(callbackMessage)
 
 		msg := kafka.Message{
@@ -115,57 +186,5 @@ func (p *Producer) process(ctx context.Context) {
 
 		kafkaMessages = append(kafkaMessages, msg)
 	}
-
-	log.Println("Writing messages to Kafka")
-	err = p.writer.WriteMessages(ctx, kafkaMessages...)
-	if err != nil {
-		log.Printf("Error writing messages to Kafka: %v", err)
-		writeKafkaErrorMetric.Inc()
-	}
-
-	for _, callback := range callbacks {
-		log.Printf("Clear scheduled_at for callback ID %s", callback.ID)
-
-		callback.PublishAttempts++
-
-		if err != nil {
-			// failed to post to Kafka
-			errMsg := err.Error()
-			callback.Error = &errMsg
-
-			if callback.PublishAttempts >= p.maxPublishAttempts {
-				log.Printf("Max attempts reached for callback ID %s", callback.ID)
-				callback.ScheduledAt = nil
-				maxAttemptsReachedMetric.Inc()
-			} else {
-				// schedule for retry
-				scheduledAt := time.Now().Add(time.Duration(callback.PublishAttempts) * p.retryDelay)
-				callback.ScheduledAt = &scheduledAt
-			}
-		} else {
-			callback.ScheduledAt = nil
-			callback.Error = nil
-		}
-
-		err := p.repo.Update(ctx, tx, callback)
-
-		if err != nil {
-			log.Printf("Error updating callback ID %s: %v", callback.ID, err)
-			tx.Rollback(ctx)
-			updateCallbackErrorMetric.Inc()
-			return
-		} else {
-			log.Printf("Successfully updated callback ID %s", callback.ID)
-			successfulUpdatesMetric.Inc()
-		}
-	}
-
-	if err := tx.Commit(ctx); err != nil {
-		log.Printf("Error committing transaction: %v", err)
-		tx.Rollback(ctx)
-		commitTxErrorMetric.Inc()
-	} else {
-		log.Println("Transaction committed successfully")
-		commitsMetric.Inc()
-	}
+	return kafkaMessages
 }

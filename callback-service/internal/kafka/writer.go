@@ -13,16 +13,13 @@ const (
 )
 
 func NewWriter(kafkaURL, topic string) *kafka.Writer {
-	batchSize := config.GetInt("KAFKA_WRITER_BATCH_SIZE", DefaultBatchSize)
-	batchTimeout := config.GetInt("KAFKA_WRITER_BATCH_TIMEOUT", DefaultBatchTimeout)
-
 	return &kafka.Writer{
 		Addr:                   kafka.TCP(kafkaURL),
 		Topic:                  topic,
 		Balancer:               &kafka.ReferenceHash{},
-		BatchSize:              batchSize,
+		BatchSize:              config.GetInt("KAFKA_WRITER_BATCH_SIZE", DefaultBatchSize),
 		RequiredAcks:           kafka.RequireAll,
-		BatchTimeout:           time.Duration(batchTimeout) * time.Millisecond,
+		BatchTimeout:           time.Duration(config.GetInt("KAFKA_WRITER_BATCH_TIMEOUT", DefaultBatchTimeout)) * time.Millisecond,
 		Async:                  false,
 		AllowAutoTopicCreation: false,
 	}

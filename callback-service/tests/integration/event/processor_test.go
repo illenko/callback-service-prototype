@@ -3,6 +3,7 @@ package event
 import (
 	"context"
 	"log"
+	"log/slog"
 	"testing"
 	"time"
 
@@ -45,7 +46,7 @@ func (s *ProcessorTestSuite) SetupSuite() {
 
 	s.pool = pool
 	s.repo = db.NewCallbackRepository(pool)
-	s.sut = event.NewProcessor(s.repo)
+	s.sut = event.NewProcessor(s.repo, slog.Default())
 }
 
 func (s *ProcessorTestSuite) TearDownSuite() {

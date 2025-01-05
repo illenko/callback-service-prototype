@@ -2,6 +2,7 @@ package callback
 
 import (
 	"context"
+	"log/slog"
 	"testing"
 	"time"
 
@@ -54,7 +55,7 @@ func TestSender_Send(t *testing.T) {
 			defer gock.Off()
 			tt.mockResponse()
 
-			sender := NewSender()
+			sender := NewSender(slog.Default())
 			ctx := context.Background()
 			url := "http://example.com/callback"
 			payload := `{"data":"test"}`

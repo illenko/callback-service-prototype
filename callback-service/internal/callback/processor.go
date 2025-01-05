@@ -7,6 +7,7 @@ import (
 
 	"callback-service/internal/config"
 	"callback-service/internal/db"
+	"callback-service/internal/logcontext"
 	"callback-service/internal/message"
 	"github.com/VictoriaMetrics/metrics"
 )
@@ -46,26 +47,19 @@ func NewCallbackProcessor(repo *db.CallbackRepository, sender *Sender, logger *s
 }
 
 func (p *Processor) Process(ctx context.Context, message message.Callback) error {
-	ctx = p.addContextValues(ctx, message)
+	ctx = logcontext.AppendCtx(ctx, slog.String("id", message.ID.String()))
 
 	p.logger.InfoContext(ctx, "Processing callback message")
 
 	p.sem <- struct{}{}
 	go func() {
 		defer func() { <-p.sem }()
-
 		if err := p.processMessage(ctx, message); err != nil {
 			p.logger.ErrorContext(ctx, "Failed to process message", "error", err)
 		}
 	}()
 
 	return nil
-}
-
-func (p *Processor) addContextValues(ctx context.Context, message message.Callback) context.Context {
-	ctx = context.WithValue(ctx, "id", message.ID)
-	ctx = context.WithValue(ctx, "paymentId", message.PaymentID)
-	return ctx
 }
 
 func (p *Processor) processMessage(ctx context.Context, message message.Callback) error {

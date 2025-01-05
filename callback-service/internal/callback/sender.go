@@ -5,7 +5,7 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"log"
+	"log/slog"
 	"net/http"
 	"time"
 
@@ -18,47 +18,48 @@ const (
 
 type Sender struct {
 	client *http.Client
+	logger *slog.Logger
 }
 
-func NewSender() *Sender {
+func NewSender(logger *slog.Logger) *Sender {
 	timeout := time.Duration(config.GetInt("CALLBACK_TIMEOUT_MS", defaultTimeoutMs)) * time.Millisecond
 	return &Sender{
 		client: &http.Client{Timeout: timeout},
+		logger: logger,
 	}
 }
 
 func (s *Sender) Send(ctx context.Context, url, payload string) error {
-	log.Printf("Sending callback to URL: %s", url)
-	log.Printf("Request payload: %s", payload)
+	s.logger.InfoContext(ctx, "Sending callback", "url", url)
+	s.logger.InfoContext(ctx, "Request payload", "payload", payload)
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewBuffer([]byte(payload)))
 	if err != nil {
-		log.Printf("Error creating request: %v", err)
+		s.logger.ErrorContext(ctx, "Error creating request", "error", err)
 		return err
 	}
 	req.Header.Set("Content-Type", "application/json")
 
 	resp, err := s.client.Do(req)
 	if err != nil {
-		log.Printf("Error sending callback: %v", err)
+		s.logger.ErrorContext(ctx, "Error sending callback", "error", err)
 		return err
 	}
 	defer resp.Body.Close()
 
 	respBody, err := io.ReadAll(resp.Body)
 	if err != nil {
-		log.Printf("Error reading response body: %v", err)
+		s.logger.ErrorContext(ctx, "Error reading response body", "error", err)
 		return err
 	}
 
-	log.Printf("Response status: %s", resp.Status)
-	log.Printf("Response body: %s", string(respBody))
+	s.logger.InfoContext(ctx, "Response received", "status", resp.Status, "body", string(respBody))
 
 	if resp.StatusCode >= 400 {
-		log.Printf("Received error response: %s", resp.Status)
+		s.logger.ErrorContext(ctx, "Received error response", "status", resp.Status)
 		return fmt.Errorf("error response: %s", resp.Status)
 	}
 
-	log.Printf("Successfully sent callback to URL: %s", url)
+	s.logger.InfoContext(ctx, "Successfully sent callback", "url", url)
 	return nil
 }

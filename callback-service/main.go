@@ -1,6 +1,7 @@
 package main
 
 import (
+	"callback-service/internal/logcontext"
 	"context"
 	"log"
 	"log/slog"
@@ -21,7 +22,7 @@ import (
 func main() {
 	time.Local = time.UTC
 
-	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
+	logger := slog.New(&logcontext.ContextHandler{Handler: slog.NewJSONHandler(os.Stdout, nil)})
 
 	dbConnStr := db.GetConnStr()
 
@@ -35,7 +36,7 @@ func main() {
 
 	repo := db.NewCallbackRepository(dbpool)
 
-	processor := event.NewProcessor(repo)
+	processor := event.NewProcessor(repo, logger)
 
 	kafkaURL := config.GetRequired("KAFKA_URL")
 	paymentEventsTopic := config.GetRequired("PAYMENT_EVENTS_TOPIC")
@@ -46,18 +47,18 @@ func main() {
 	eventReader := kafka.NewReader(kafkaURL, paymentEventsTopic, callbackServiceGroupID)
 	defer eventReader.Close()
 
-	go kafka.ReadPaymentEvents(eventReader, processor)
+	kafka.ReadPaymentEvents(eventReader, processor)
 
 	callbackWriter := kafka.NewWriter(kafkaURL, callbackMessagesTopic)
 	defer callbackWriter.Close()
 
-	callbackProducer := callback.NewProducer(repo, callbackWriter)
-	go callbackProducer.Start(context.Background())
+	callbackProducer := callback.NewProducer(repo, callbackWriter, logger)
+	callbackProducer.Start(context.Background())
 
-	callbackSender := callback.NewSender()
+	callbackSender := callback.NewSender(logger)
 	callbackProcessor := callback.NewCallbackProcessor(repo, callbackSender, logger)
 
-	go kafka.ReadCallbackMessages(kafka.NewReader(kafkaURL, callbackMessagesTopic, callbackServiceGroupID), callbackProcessor)
+	kafka.ReadCallbackMessages(kafka.NewReader(kafkaURL, callbackMessagesTopic, callbackServiceGroupID), callbackProcessor)
 
 	metricsUrl := config.GetRequired("VICTORIAMETRICS_PUSH_URL")
 	metricsInterval := time.Duration(config.GetInt("VICTORIAMETRICS_PUSH_INTERVAL_MS", 10_000)) * time.Millisecond
