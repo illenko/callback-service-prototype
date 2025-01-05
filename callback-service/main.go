@@ -47,7 +47,7 @@ func main() {
 	eventReader := kafka.NewReader(kafkaURL, paymentEventsTopic, callbackServiceGroupID)
 	defer eventReader.Close()
 
-	kafka.ReadPaymentEvents(eventReader, processor)
+	kafka.ReadPaymentEvents(eventReader, processor, logger)
 
 	callbackWriter := kafka.NewWriter(kafkaURL, callbackMessagesTopic)
 	defer callbackWriter.Close()
@@ -58,7 +58,7 @@ func main() {
 	callbackSender := callback.NewSender(logger)
 	callbackProcessor := callback.NewCallbackProcessor(repo, callbackSender, logger)
 
-	kafka.ReadCallbackMessages(kafka.NewReader(kafkaURL, callbackMessagesTopic, callbackServiceGroupID), callbackProcessor)
+	kafka.ReadCallbackMessages(kafka.NewReader(kafkaURL, callbackMessagesTopic, callbackServiceGroupID), callbackProcessor, logger)
 
 	metricsUrl := config.GetRequired("VICTORIAMETRICS_PUSH_URL")
 	metricsInterval := time.Duration(config.GetInt("VICTORIAMETRICS_PUSH_INTERVAL_MS", 10_000)) * time.Millisecond

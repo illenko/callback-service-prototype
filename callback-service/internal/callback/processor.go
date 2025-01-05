@@ -19,11 +19,12 @@ const (
 )
 
 var (
-	processErrorMetricSending = metrics.GetOrCreateCounter(`callback_processor_errors_total{stage="sending"}`)
-	processErrorMetricTx      = metrics.GetOrCreateCounter(`callback_processor_errors_total{stage="transaction"}`)
-	processErrorMetricUpdate  = metrics.GetOrCreateCounter(`callback_processor_errors_total{stage="update"}`)
-	processSuccessMetric      = metrics.GetOrCreateCounter(`callback_processor_successful_total`)
-	maxAttemptsMetric         = metrics.GetOrCreateCounter(`callback_processor_max_attempts_total`)
+	processErrorSendingCounter = metrics.GetOrCreateCounter(`callback_processor_total{result="error_sending"}`)
+	processErrorTxCounter      = metrics.GetOrCreateCounter(`callback_processor_total{result="error_tx"}`)
+	processErrorUpdateCounter  = metrics.GetOrCreateCounter(`callback_processor_total{result="error_update"}`)
+	processSuccessCounter      = metrics.GetOrCreateCounter(`callback_processor_total{result="success"}`)
+	maxAttemptsCounter         = metrics.GetOrCreateCounter(`callback_processor_total{result="max_attempts"}`)
+	rescheduledCounter         = metrics.GetOrCreateCounter(`callback_processor_total{result="rescheduled"}`)
 )
 
 type Processor struct {
@@ -66,13 +67,13 @@ func (p *Processor) processMessage(ctx context.Context, message message.Callback
 	callbackSendingErr := p.sender.Send(ctx, message.Url, message.Payload)
 	if callbackSendingErr != nil {
 		p.logger.ErrorContext(ctx, "Error sending callback", "error", callbackSendingErr)
-		processErrorMetricSending.Inc()
+		processErrorSendingCounter.Inc()
 	}
 
 	tx, err := p.repo.BeginTx(ctx)
 	if err != nil {
 		p.logger.ErrorContext(ctx, "Error starting transaction", "error", err)
-		processErrorMetricTx.Inc()
+		processErrorTxCounter.Inc()
 		return err
 	}
 	defer tx.Rollback(ctx)
@@ -80,7 +81,7 @@ func (p *Processor) processMessage(ctx context.Context, message message.Callback
 	entity, err := p.repo.SelectForUpdateByID(ctx, tx, message.ID)
 	if err != nil {
 		p.logger.ErrorContext(ctx, "Error selecting for update by ID", "error", err)
-		processErrorMetricTx.Inc()
+		processErrorTxCounter.Inc()
 		return err
 	}
 
@@ -88,18 +89,18 @@ func (p *Processor) processMessage(ctx context.Context, message message.Callback
 
 	if err := p.repo.Update(ctx, tx, entity); err != nil {
 		p.logger.ErrorContext(ctx, "Error updating callback", "error", err)
-		processErrorMetricUpdate.Inc()
+		processErrorUpdateCounter.Inc()
 		return err
 	}
 
 	if err := tx.Commit(ctx); err != nil {
 		p.logger.ErrorContext(ctx, "Error committing transaction", "error", err)
-		processErrorMetricTx.Inc()
+		processErrorTxCounter.Inc()
 		return err
 	}
 
 	p.logger.InfoContext(ctx, "Transaction committed successfully")
-	processSuccessMetric.Inc()
+	processSuccessCounter.Inc()
 	return nil
 }
 
@@ -112,13 +113,14 @@ func (p *Processor) updateEntity(ctx context.Context, entity *db.CallbackMessage
 			entity.ScheduledAt = nil
 			errorMsg := "Max delivery attempts reached. " + callbackSendingErr.Error()
 			entity.Error = &errorMsg
-			maxAttemptsMetric.Inc()
+			maxAttemptsCounter.Inc()
 		} else {
 			scheduledAt := time.Now().Add(time.Duration(entity.DeliveryAttempts) * p.retryDelay)
 			errorMsg := callbackSendingErr.Error()
 			entity.ScheduledAt = &scheduledAt
 			entity.Error = &errorMsg
 			entity.PublishAttempts = 0
+			rescheduledCounter.Inc()
 		}
 	} else {
 		p.logger.InfoContext(ctx, "Successfully processed and sent event")
