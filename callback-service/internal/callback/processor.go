@@ -22,9 +22,10 @@ var (
 	processErrorSendingCounter = metrics.GetOrCreateCounter(`callback_processor_total{result="error_sending"}`)
 	processErrorTxCounter      = metrics.GetOrCreateCounter(`callback_processor_total{result="error_tx"}`)
 	processErrorUpdateCounter  = metrics.GetOrCreateCounter(`callback_processor_total{result="error_update"}`)
-	processSuccessCounter      = metrics.GetOrCreateCounter(`callback_processor_total{result="success"}`)
+	processSuccessCounter      = metrics.GetOrCreateCounter(`callback_processor_total{result="successfully_processed"}`)
 	maxAttemptsCounter         = metrics.GetOrCreateCounter(`callback_processor_total{result="max_attempts"}`)
 	rescheduledCounter         = metrics.GetOrCreateCounter(`callback_processor_total{result="rescheduled"}`)
+	successCounter             = metrics.GetOrCreateCounter(`callback_processor_total{result="success"}`)
 )
 
 type Processor struct {
@@ -128,5 +129,6 @@ func (p *Processor) updateEntity(ctx context.Context, entity *db.CallbackMessage
 		entity.DeliveredAt = &now
 		entity.ScheduledAt = nil
 		entity.Error = nil
+		successCounter.Inc()
 	}
 }

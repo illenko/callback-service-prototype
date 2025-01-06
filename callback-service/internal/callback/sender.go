@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"callback-service/internal/config"
+	"github.com/VictoriaMetrics/metrics"
 )
 
 const (
@@ -30,6 +31,8 @@ func NewSender(logger *slog.Logger) *Sender {
 }
 
 func (s *Sender) Send(ctx context.Context, url, payload string) error {
+	startTime := time.Now()
+
 	s.logger.InfoContext(ctx, "Sending callback", "url", url)
 	s.logger.InfoContext(ctx, "Request payload", "payload", payload)
 
@@ -53,9 +56,11 @@ func (s *Sender) Send(ctx context.Context, url, payload string) error {
 		return err
 	}
 
+	metrics.GetOrCreateHistogram(fmt.Sprintf(`callback_sender_milliseconds{url="%s",status="%d"}`, url, resp.StatusCode)).Update(float64(time.Since(startTime).Milliseconds()))
+
 	s.logger.InfoContext(ctx, "Response received", "status", resp.Status, "body", string(respBody))
 
-	if resp.StatusCode >= 400 {
+	if resp.StatusCode != http.StatusOK {
 		s.logger.ErrorContext(ctx, "Received error response", "status", resp.Status)
 		return fmt.Errorf("error response: %s", resp.Status)
 	}

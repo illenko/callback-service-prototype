@@ -29,6 +29,8 @@ var (
 	producerErrorUpdateCounter   = metrics.GetOrCreateCounter(`callback_producer_total{result="db_update_failed"}`)
 	producerSuccessCounter       = metrics.GetOrCreateCounter(`callback_producer_total{result="success"}`)
 
+	producerProcessDurationHistogram = metrics.GetOrCreateHistogram(`callback_producer_duration_milliseconds`)
+
 	// producer per message metrics
 	producerMessagesPublishedCounter   = metrics.GetOrCreateCounter(`callback_producer_messages_total{result="published"}`)
 	producerMessagesMaxAttemptsCounter = metrics.GetOrCreateCounter(`callback_producer_messages_total{result="max_attempts_reached"}`)
@@ -75,6 +77,8 @@ func (p *Producer) Start(ctx context.Context) {
 }
 
 func (p *Producer) process(ctx context.Context) {
+	startTime := time.Now()
+
 	// set runId as a correlation id for all logs in scope
 	ctx = logcontext.AppendCtx(ctx, slog.String("runId", uuid.New().String()))
 
@@ -161,13 +165,15 @@ func (p *Producer) process(ctx context.Context) {
 		producerSuccessCounter.Inc()
 	}
 
+	producerProcessDurationHistogram.Update(float64(time.Since(startTime).Milliseconds()))
+
 }
 
 func (p *Producer) toKafkaMessages(ctx context.Context, callbacks []*db.CallbackMessageEntity) []kafka.Message {
 	var kafkaMessages []kafka.Message
 
 	for _, entity := range callbacks {
-		p.logger.InfoContext(ctx, "Preparing Kafka message for callback ID", "id", entity.ID)
+		p.logger.DebugContext(ctx, "Preparing Kafka message for callback ID", "id", entity.ID)
 
 		callbackMessage := message.Callback{
 			ID:        entity.ID,
