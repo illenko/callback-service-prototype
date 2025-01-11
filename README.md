@@ -9,16 +9,20 @@ The project uses the following technologies:
 
 - **[Go](https://golang.org)**: The main programming language used for the project.
 - **[UUID](https://github.com/google/uuid)**: For generating unique identifiers.
-- **[Godotenv](https://github.com/joho/godotenv)**: For loading environment variables from `.env` files.
-- **[LibPQ](https://github.com/lib/pq)**: PostgreSQL driver for Go.
-- **[PGX](https://github.com/jackc/pgx)**: PostgreSQL driver and toolkit.
-- **[Goose](https://github.com/pressly/goose)**: Database migration tool.
-- **[Kafka-Go](https://github.com/segmentio/kafka-go)**: Kafka client library for Go.
-- **[Testify](https://github.com/stretchr/testify)**: Testing toolkit for Go.
+- **[LibPQ](https://github.com/lib/pq)**: PostgreSQL driver.
+- **[PGX](https://github.com/jackc/pgx/v5)**: PostgreSQL driver and toolkit.
+- **[Goose](https://github.com/pressly/goose/v3)**: Database migration tool.
+- **[Kafka-Go](https://github.com/segmentio/kafka-go)**: Kafka client library.
+- **[Testify](https://github.com/stretchr/testify)**: Testing toolkit.
 - **[Gock](https://github.com/h2non/gock)**: For HTTP mocking in tests.
-- **[Testcontainers-Go](https://github.com/testcontainers/testcontainers-go)**: Library for integration testing with
-  Docker containers.
-- **[Testcontainers-Go Postgres Module](https://github.com/testcontainers/testcontainers-go/tree/main/modules/postgres)**: PostgreSQL module for Testcontainers-Go.
+- **[Testcontainers-Go](https://github.com/testcontainers/testcontainers-go)**: Library for integration testing with Docker containers.
+- **[Testcontainers-Go Postgres Module](https://github.com/testcontainers/testcontainers-go/modules/postgres)**: PostgreSQL module for Testcontainers-Go.
+- **[VictoriaMetrics/metrics](https://github.com/VictoriaMetrics/metrics)**: Metrics library.
+- **[Loki-Client-Go](https://github.com/grafana/loki-client-go)**: Loki client library.
+- **[Slog-Loki](https://github.com/samber/slog-loki/v3)**: Loki logging library.
+- **[Viper](https://github.com/spf13/viper)**: Configuration management library.
+- **[Errors](https://github.com/pkg/errors)**: Package for handling errors.
+
 
 ## Callback delivery flow
 

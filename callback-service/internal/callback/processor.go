@@ -2,20 +2,17 @@ package callback
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"time"
 
 	"callback-service/internal/config"
 	"callback-service/internal/db"
-	"callback-service/internal/logcontext"
+	"callback-service/internal/logging"
 	"callback-service/internal/message"
 	"github.com/VictoriaMetrics/metrics"
-)
-
-const (
-	defaultParallelism  = 1000
-	defaultMaxAttempts  = 3
-	defaultRetryDelayMs = 10_000
+	"github.com/google/uuid"
+	"github.com/pkg/errors"
 )
 
 var (
@@ -25,7 +22,7 @@ var (
 	processSuccessCounter      = metrics.GetOrCreateCounter(`callback_processor_total{result="successfully_processed"}`)
 	maxAttemptsCounter         = metrics.GetOrCreateCounter(`callback_processor_total{result="max_attempts"}`)
 	rescheduledCounter         = metrics.GetOrCreateCounter(`callback_processor_total{result="rescheduled"}`)
-	successCounter             = metrics.GetOrCreateCounter(`callback_processor_total{result="success"}`)
+	successCounter             = metrics.GetOrCreateCounter(`callback_processor_total{result="successfully_saved"}`)
 )
 
 type Processor struct {
@@ -37,19 +34,20 @@ type Processor struct {
 	logger      *slog.Logger
 }
 
-func NewCallbackProcessor(repo *db.CallbackRepository, sender *Sender, logger *slog.Logger) *Processor {
+func NewCallbackProcessor(repo *db.CallbackRepository, sender *Sender, cfg config.CallbackProcessor, logger *slog.Logger) *Processor {
 	return &Processor{
 		repo:        repo,
 		sender:      sender,
-		sem:         make(chan struct{}, config.GetInt("CALLBACK_PROCESSING_PARALLELISM", defaultParallelism)),
-		maxAttempts: config.GetInt("MAX_DELIVERY_ATTEMPTS", defaultMaxAttempts),
-		retryDelay:  time.Duration(config.GetInt("CALLBACK_RETRY_DELAY_MS", defaultRetryDelayMs)) * time.Millisecond,
-		logger:      logger,
+		sem:         make(chan struct{}, cfg.Parallelism),
+		maxAttempts: cfg.MaxDeliveryAttempts,
+		retryDelay:  time.Duration(cfg.RescheduleDelayMs) * time.Millisecond,
+		logger:      logger.With("component", "callback.processor"),
 	}
 }
 
 func (p *Processor) Process(ctx context.Context, message message.Callback) error {
-	ctx = logcontext.AppendCtx(ctx, slog.String("id", message.ID.String()))
+	ctx = logging.AppendCtx(ctx, slog.String("correlationId", uuid.New().String()))
+	ctx = logging.AppendCtx(ctx, slog.String("callbackId", message.ID.String()))
 
 	p.logger.InfoContext(ctx, "Processing callback message")
 
@@ -67,37 +65,37 @@ func (p *Processor) Process(ctx context.Context, message message.Callback) error
 func (p *Processor) processMessage(ctx context.Context, message message.Callback) error {
 	callbackSendingErr := p.sender.Send(ctx, message.Url, message.Payload)
 	if callbackSendingErr != nil {
-		p.logger.ErrorContext(ctx, "Error sending callback", "error", callbackSendingErr)
+		p.logger.ErrorContext(ctx, fmt.Sprintf("Error sending callback: %v", callbackSendingErr))
 		processErrorSendingCounter.Inc()
 	}
 
 	tx, err := p.repo.BeginTx(ctx)
 	if err != nil {
-		p.logger.ErrorContext(ctx, "Error starting transaction", "error", err)
+		p.logger.ErrorContext(ctx, fmt.Sprintf("Error starting transaction: %v", err))
 		processErrorTxCounter.Inc()
-		return err
+		return errors.Wrap(err, "starting transaction")
 	}
 	defer tx.Rollback(ctx)
 
 	entity, err := p.repo.SelectForUpdateByID(ctx, tx, message.ID)
 	if err != nil {
-		p.logger.ErrorContext(ctx, "Error selecting for update by ID", "error", err)
+		p.logger.ErrorContext(ctx, fmt.Sprintf("Error selecting callback for update: %v", err))
 		processErrorTxCounter.Inc()
-		return err
+		return errors.Wrap(err, "selecting callback for update")
 	}
 
 	p.updateEntity(ctx, entity, callbackSendingErr)
 
 	if err := p.repo.Update(ctx, tx, entity); err != nil {
-		p.logger.ErrorContext(ctx, "Error updating callback", "error", err)
+		p.logger.ErrorContext(ctx, fmt.Sprintf("Error updating callback: %v", err))
 		processErrorUpdateCounter.Inc()
-		return err
+		return errors.Wrap(err, "updating callback")
 	}
 
 	if err := tx.Commit(ctx); err != nil {
-		p.logger.ErrorContext(ctx, "Error committing transaction", "error", err)
+		p.logger.ErrorContext(ctx, fmt.Sprintf("Error committing transaction: %v", err))
 		processErrorTxCounter.Inc()
-		return err
+		return errors.Wrap(err, "committing transaction")
 	}
 
 	p.logger.InfoContext(ctx, "Transaction committed successfully")
@@ -124,7 +122,7 @@ func (p *Processor) updateEntity(ctx context.Context, entity *db.CallbackMessage
 			rescheduledCounter.Inc()
 		}
 	} else {
-		p.logger.InfoContext(ctx, "Successfully processed and sent event")
+		p.logger.InfoContext(ctx, "Successfully processed callback")
 		now := time.Now()
 		entity.DeliveredAt = &now
 		entity.ScheduledAt = nil

@@ -1,0 +1,43 @@
+database:
+  user: postgres
+  password: postgres
+  name: postgres
+  host: localhost
+  port: 5432
+  ssl-mode: disable
+
+kafka:
+  writer:
+    batch-size: 100
+    batch-timeout-ms: 100
+  broker:
+    url: localhost:9092
+  topic:
+    payment-events: payment-events
+    callback-messages: callback-messages
+  reader:
+    group-id: callback-service
+
+callback:
+  processor:
+    parallelism: 3000
+    reschedule-delay-ms: 10000
+    max-delivery-attempts: 3
+  producer:
+    polling-interval-ms: 500
+    fetch-size: 100
+    reschedule-delay-ms: 10000
+    max-publish-attempts: 3
+  sender:
+    timeout-ms: 10000
+
+server:
+  port: 8080
+
+metrics:
+  url: http://localhost:8428/api/v1/import/prometheus
+  interval-ms: 10000
+  common-labels: service="callback-service"
+
+logs:
+  url:

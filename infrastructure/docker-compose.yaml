@@ -65,3 +65,14 @@ services:
       - '--storageDataPath=/victoria-metrics-data'
     volumes:
       - ./victoriametrics/data:/victoria-metrics-data
+
+  victorialogs:
+    container_name: victorialogs
+    image: victoriametrics/victoria-logs:v1.4.0-victorialogs
+    command:
+      - "--storageDataPath=/vlogs"
+      - "--httpListenAddr=:9428"
+    volumes:
+      - ./vldata:/vlogs
+    ports:
+      - "9428:9428"

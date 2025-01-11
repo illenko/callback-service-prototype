@@ -3,6 +3,7 @@ package kafka
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"strings"
 
@@ -50,7 +51,7 @@ func ReadPaymentEvents(reader *kafka.Reader, processor *event.Processor, logger 
 	readMessages(context.Background(), reader, logger, func(ctx context.Context, value []byte) error {
 		var e message.PaymentEvent
 		if err := json.Unmarshal(value, &e); err != nil {
-			logger.ErrorContext(ctx, "Error unmarshalling message", "error", err)
+			logger.ErrorContext(ctx, fmt.Sprintf("Error unmarshalling message: %v", err))
 			paymentEventMetrics.UnmarshalErrorCounter.Inc()
 			return err
 		}
@@ -62,7 +63,7 @@ func ReadCallbackMessages(reader *kafka.Reader, processor *callback.Processor, l
 	readMessages(context.Background(), reader, logger, func(ctx context.Context, value []byte) error {
 		var c message.Callback
 		if err := json.Unmarshal(value, &c); err != nil {
-			logger.ErrorContext(ctx, "Error unmarshalling message", "error", err)
+			logger.ErrorContext(ctx, fmt.Sprintf("Error unmarshalling message: %v", err))
 			callbackMessageMetrics.UnmarshalErrorCounter.Inc()
 			return err
 		}
@@ -73,17 +74,18 @@ func ReadCallbackMessages(reader *kafka.Reader, processor *callback.Processor, l
 func readMessages(ctx context.Context, reader *kafka.Reader, logger *slog.Logger, process func(context.Context, []byte) error, kafkaMetrics Metrics) {
 	go func() {
 		for {
+			logger.InfoContext(ctx, "Waiting for messages from Kafka...")
 			m, err := reader.ReadMessage(ctx)
 			if err != nil {
-				logger.ErrorContext(ctx, "Error reading message", "error", err)
+				logger.ErrorContext(ctx, fmt.Sprintf("Error reading message: %v", err))
 				kafkaMetrics.ReadErrorCounter.Inc()
 				continue
 			}
-			logger.InfoContext(ctx, "Message read", "topic", m.Topic, "partition", m.Partition, "offset", m.Offset, "key", string(m.Key), "value", string(m.Value))
+			logger.InfoContext(ctx, fmt.Sprintf("Received message: %s from topic %s", string(m.Value), m.Topic))
 
 			err = process(ctx, m.Value)
 			if err != nil {
-				logger.ErrorContext(ctx, "Error processing message", "error", err)
+				logger.ErrorContext(ctx, fmt.Sprintf("Error processing message: %v", err))
 				kafkaMetrics.ProcessErrorCounter.Inc()
 				continue
 			}

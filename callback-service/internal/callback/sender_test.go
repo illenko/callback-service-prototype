@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"callback-service/internal/config"
 	"github.com/h2non/gock"
 	"github.com/stretchr/testify/assert"
 )
@@ -43,7 +44,7 @@ func TestSender_Send(t *testing.T) {
 				gock.New("http://example.com").
 					Post("/callback").
 					Reply(200).
-					Delay(15 * time.Second)
+					Delay(1 * time.Second)
 			},
 			expectedError:  true,
 			expectedErrMsg: "Client.Timeout exceeded",
@@ -55,7 +56,7 @@ func TestSender_Send(t *testing.T) {
 			defer gock.Off()
 			tt.mockResponse()
 
-			sender := NewSender(slog.Default())
+			sender := NewSender(config.CallbackSender{TimeoutMs: 100}, slog.Default())
 			ctx := context.Background()
 			url := "http://example.com/callback"
 			payload := `{"data":"test"}`

@@ -1,4 +1,4 @@
-package logcontext
+package logging
 
 import (
 	"context"
@@ -15,8 +15,6 @@ type ContextHandler struct {
 	slog.Handler
 }
 
-// Handle adds contextual attributes to the Record before calling the underlying
-// handler
 func (h ContextHandler) Handle(ctx context.Context, r slog.Record) error {
 	if attrs, ok := ctx.Value(slogFields).([]slog.Attr); ok {
 		for _, v := range attrs {
@@ -27,8 +25,6 @@ func (h ContextHandler) Handle(ctx context.Context, r slog.Record) error {
 	return h.Handler.Handle(ctx, r)
 }
 
-// AppendCtx adds an slog attribute to the provided context so that it will be
-// included in any Record created with such context
 func AppendCtx(parent context.Context, attr slog.Attr) context.Context {
 	if parent == nil {
 		parent = context.Background()
@@ -39,7 +35,7 @@ func AppendCtx(parent context.Context, attr slog.Attr) context.Context {
 		return context.WithValue(parent, slogFields, v)
 	}
 
-	v := []slog.Attr{}
+	var v []slog.Attr
 	v = append(v, attr)
 	return context.WithValue(parent, slogFields, v)
 }

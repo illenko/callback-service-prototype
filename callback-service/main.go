@@ -1,12 +1,9 @@
 package main
 
 import (
-	"callback-service/internal/logcontext"
 	"context"
 	"log"
 	"log/slog"
-	"net/http"
-	"os"
 	"time"
 
 	"callback-service/internal/callback"
@@ -14,17 +11,20 @@ import (
 	"callback-service/internal/db"
 	"callback-service/internal/event"
 	"callback-service/internal/kafka"
-	"github.com/VictoriaMetrics/metrics"
-
+	"callback-service/internal/logging"
+	"callback-service/internal/metrics"
 	_ "github.com/joho/godotenv/autoload"
 )
 
 func main() {
 	time.Local = time.UTC
 
-	logger := slog.New(&logcontext.ContextHandler{Handler: slog.NewJSONHandler(os.Stdout, nil)})
+	cfg := config.MustLoadConfig("./")
 
-	dbConnStr := db.GetConnStr()
+	logger := logging.GetLogger(cfg.Logs)
+	slog.SetDefault(logger)
+
+	dbConnStr := db.GetConnStr(cfg.Database)
 
 	db.RunMigrations(dbConnStr, "migrations")
 
@@ -38,38 +38,21 @@ func main() {
 
 	processor := event.NewProcessor(repo, logger)
 
-	kafkaURL := config.GetRequired("KAFKA_URL")
-	paymentEventsTopic := config.GetRequired("PAYMENT_EVENTS_TOPIC")
-	callbackMessagesTopic := config.GetRequired("CALLBACK_MESSAGES_TOPIC")
-	callbackServiceGroupID := config.GetRequired("CALLBACK_SERVICE_GROUP_ID")
-	serverPort := config.GetRequired("SERVER_PORT")
-
-	eventReader := kafka.NewReader(kafkaURL, paymentEventsTopic, callbackServiceGroupID)
+	eventReader := kafka.NewReader(cfg.Kafka.Broker.URL, cfg.Kafka.Topic.PaymentEvents, cfg.Kafka.Reader.GroupID)
 	defer eventReader.Close()
 
 	kafka.ReadPaymentEvents(eventReader, processor, logger)
 
-	callbackWriter := kafka.NewWriter(kafkaURL, callbackMessagesTopic)
+	callbackWriter := kafka.NewWriter(cfg.Kafka.Broker.URL, cfg.Kafka.Writer.BatchSize, cfg.Kafka.Writer.BatchTimeoutMs, cfg.Kafka.Topic.CallbackMessages)
 	defer callbackWriter.Close()
 
-	callbackProducer := callback.NewProducer(repo, callbackWriter, logger)
+	callbackSender := callback.NewSender(cfg.Callback.Sender, logger)
+	callbackProcessor := callback.NewCallbackProcessor(repo, callbackSender, cfg.Callback.Processor, logger)
+
+	kafka.ReadCallbackMessages(kafka.NewReader(cfg.Kafka.Broker.URL, cfg.Kafka.Topic.CallbackMessages, cfg.Kafka.Reader.GroupID), callbackProcessor, logger)
+
+	metrics.Setup(cfg.Metrics)
+
+	callbackProducer := callback.NewProducer(repo, callbackWriter, cfg.Callback.Producer, logger)
 	callbackProducer.Start(context.Background())
-
-	callbackSender := callback.NewSender(logger)
-	callbackProcessor := callback.NewCallbackProcessor(repo, callbackSender, logger)
-
-	kafka.ReadCallbackMessages(kafka.NewReader(kafkaURL, callbackMessagesTopic, callbackServiceGroupID), callbackProcessor, logger)
-
-	metricsUrl := config.GetRequired("VICTORIAMETRICS_PUSH_URL")
-	metricsInterval := time.Duration(config.GetInt("VICTORIAMETRICS_PUSH_INTERVAL_MS", 10_000)) * time.Millisecond
-	metricsLabels := config.GetRequired("VICTORIA_METRICS_COMMON_LABELS")
-
-	metrics.InitPush(metricsUrl, metricsInterval, metricsLabels, true)
-
-	mux := http.NewServeMux()
-	mux.HandleFunc("GET /liveness", func(w http.ResponseWriter, r *http.Request) {
-		metrics.GetOrCreateCounter("liveliness_check").Inc()
-		w.WriteHeader(http.StatusOK)
-	})
-	log.Fatal(http.ListenAndServe(":"+serverPort, mux))
 }

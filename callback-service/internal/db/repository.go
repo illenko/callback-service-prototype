@@ -7,6 +7,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/pkg/errors"
 )
 
 type CallbackRepository struct {
@@ -20,7 +21,7 @@ func NewCallbackRepository(pool *pgxpool.Pool) *CallbackRepository {
 func (r *CallbackRepository) BeginTx(ctx context.Context) (pgx.Tx, error) {
 	tx, err := r.pool.Begin(ctx)
 	if err != nil {
-		return nil, err
+		return nil, errors.Wrap(err, "beginning transaction")
 	}
 	return tx, nil
 }
@@ -33,7 +34,7 @@ func (r *CallbackRepository) Create(ctx context.Context, entity *CallbackMessage
 	err := r.pool.QueryRow(ctx, query, entity.ID, entity.PaymentID, entity.Url, entity.Payload, now, now, entity.ScheduledAt, entity.DeliveryAttempts, entity.PublishAttempts).Scan(&entity.ID)
 
 	if err != nil {
-		return nil, err
+		return nil, errors.Wrap(err, "inserting callback message")
 	}
 	return entity, nil
 }
@@ -54,7 +55,7 @@ func (r *CallbackRepository) GetUnprocessedCallbacks(ctx context.Context, tx pgx
 	for rows.Next() {
 		var callback CallbackMessageEntity
 		if err := rows.Scan(&callback.ID, &callback.PaymentID, &callback.Payload, &callback.Url, &callback.DeliveryAttempts, &callback.PublishAttempts); err != nil {
-			return nil, err
+			return nil, errors.Wrap(err, "scanning callback message")
 		}
 		callbacks = append(callbacks, &callback)
 	}
@@ -81,7 +82,7 @@ func (r *CallbackRepository) SelectForUpdateByID(ctx context.Context, tx pgx.Tx,
 	var entity CallbackMessageEntity
 	err := row.Scan(&entity.ID, &entity.PaymentID, &entity.Payload, &entity.Url, &entity.DeliveryAttempts, &entity.PublishAttempts, &entity.ScheduledAt, &entity.DeliveredAt, &entity.Error, &entity.CreatedAt, &entity.UpdatedAt)
 	if err != nil {
-		return nil, err
+		return nil, errors.Wrap(err, "selecting callback message for update")
 	}
 	return &entity, nil
 }
@@ -95,7 +96,7 @@ func (r *CallbackRepository) SelectByID(ctx context.Context, id uuid.UUID) (*Cal
 	var entity CallbackMessageEntity
 	err := row.Scan(&entity.ID, &entity.PaymentID, &entity.Payload, &entity.Url, &entity.DeliveryAttempts, &entity.PublishAttempts, &entity.ScheduledAt, &entity.DeliveredAt, &entity.Error, &entity.CreatedAt, &entity.UpdatedAt)
 	if err != nil {
-		return nil, err
+		return nil, errors.Wrap(err, "selecting callback message")
 	}
 	return &entity, nil
 }

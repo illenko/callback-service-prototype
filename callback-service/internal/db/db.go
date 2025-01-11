@@ -12,10 +12,8 @@ import (
 	"github.com/pressly/goose/v3"
 )
 
-func GetConnStr() string {
-	return fmt.Sprintf("postgres://%s:%s@%s:%s/%s?sslmode=%s", config.GetRequired("DB_USER"),
-		config.GetRequired("DB_PASSWORD"), config.GetRequired("DB_HOST"), config.GetRequired("DB_PORT"),
-		config.GetRequired("DB_NAME"), config.GetRequired("SSL_MODE"))
+func GetConnStr(cfg config.Database) string {
+	return fmt.Sprintf("postgres://%s:%s@%s:%s/%s?sslmode=%s", cfg.User, cfg.Password, cfg.Host, cfg.Port, cfg.Name, cfg.SSLMode)
 }
 
 func RunMigrations(connStr, migrationsDir string) {
