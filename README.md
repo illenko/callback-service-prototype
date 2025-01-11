@@ -23,6 +23,9 @@ The project uses the following technologies:
 - **[Viper](https://github.com/spf13/viper)**: Configuration management library.
 - **[Errors](https://github.com/pkg/errors)**: Package for handling errors.
 
+## Components
+![components.png](components.png)
+
 
 ## Callback delivery flow
 
@@ -72,102 +75,65 @@ The project uses the following technologies:
        transaction.
     10. Release semaphore: Release the semaphore after processing is complete.
 
-```mermaid
-flowchart TD
-    A[Start] --> B[Consume messages from payment-events topic]
-    B --> C[Unmarshal messages to PaymentEvent struct]
-    C --> D[Process PaymentEvent]
-    D --> E[Create Callback payload]
-    E --> F[Insert Callback message into DB]
-    F --> G[Fetch unprocessed callbacks from DB]
-    G --> H[Create Kafka message for each callback]
-    H --> I[Send Kafka messages to callback-messages topic]
-    I --> J{Kafka write result}
-    J -->|Fail| K[Increment PublishAttempts]
-    K --> L{PublishAttempts max?}
-    L -->|Yes| M[Clear scheduled_at and set Error]
-    L -->|No| N[Schedule callback for retry]
-    J -->|Success| O[Clear scheduled_at and Error]
-    O --> P[Commit DB transaction]
-    P --> Q[Process messages from callback-messages topic]
-    Q --> R[Acquire semaphore]
-    R --> S[Send callback message using Sender]
-    S --> T[Start new DB transaction]
-    T --> U[Fetch callback for update]
-    U --> V[Increment DeliveryAttempts]
-    V --> W{Sending callback result}
-    W -->|Fail| X[Log error]
-    X --> Y{DeliveryAttempts max?}
-    Y -->|Yes| Z[Clear ScheduledAt and set Error]
-    Y -->|No| AA[Schedule callback for retry and reset PublishAttempts]
-    W -->|Success| AB[Log success]
-    AB --> AC[Set DeliveredAt, clear ScheduledAt and Error]
-    AC --> AD[Update callback message in DB]
-    AD --> AE[Commit transaction]
-    AE --> AF[Release semaphore]
-    AF --> AG[End]
-```
-
-## Components
-
-```mermaid
-graph TD
-    subgraph Database
-        B1[callback_message]
-    end
-
-    subgraph callback-service
-        C1[event.Processor]
-        C2[callback.Producer]
-        C3[callback.Processor]
-        C4[callback.Sender]
-    end
-
-    subgraph Kafka
-        A1[payment-events]
-        A2[callback-messages]
-    end
-
-    B1 -->|Saves to callback_message table| C1
-    C1 -->|Consumes messages| A1
-    C2 -->|Polls/Updates callback_message table| B1
-    C2 -->|Produces messages| A2
-    C3 -->|Consumes messages| A2
-    C3 -->|Calls sender| C4
-    C3 -->|Updates callback_message| B1
-    C4 -->|Sends HTTP request| D1[External System]
-```
+![sequence.png](sequence.png)
 
 ## Configuration
 
-The `.env` file contains environment variables that configure the callback service. Here is an explanation of each
-variable:
+The configuration for the callback service is managed using the Viper library, which supports reading configuration from
+multiple sources, such as environment variables, configuration files, and command-line flags. The configuration is
+defined in a `config.yaml` file, which can be overridden by environment variables.
 
-- `DB_USER`: The username for the database connection.
-- `DB_PASSWORD`: The password for the database connection.
-- `DB_NAME`: The name of the database to connect to.
-- `DB_HOST`: The hostname or IP address of the database server.
-- `DB_PORT`: The port number on which the database server is listening.
-- `SSL_MODE`: The SSL mode for the database connection (e.g., disable, require).
+The following is an explanation of the configuration file:
 
-- `KAFKA_WRITER_BATCH_SIZE`: The batch size for writing messages to Kafka.
-- `KAFKA_WRITER_BATCH_TIMEOUT`: The timeout for batching messages before sending them to Kafka.
-- `KAFKA_URL`: The URL of the Kafka broker.
+### Database Configuration
+- `database`:
+    - `user`: The username for the database connection.
+    - `password`: The password for the database connection.
+    - `name`: The name of the database to connect to.
+    - `host`: The hostname or IP address of the database server.
+    - `port`: The port number on which the database server is listening.
+    - `ssl-mode`: The SSL mode for the database connection (e.g., disable, require).
 
-- `PAYMENT_EVENTS_TOPIC`: The Kafka topic for payment events.
-- `CALLBACK_MESSAGES_TOPIC`: The Kafka topic for callback messages.
-- `CALLBACK_SERVICE_GROUP_ID`: The consumer group ID for the callback service.
+### Kafka Configuration
+- `kafka`:
+    - `writer`:
+        - `batch-size`: The batch size for writing messages to Kafka.
+        - `batch-timeout-ms`: The timeout in milliseconds for batching messages before sending them to Kafka.
+    - `broker`:
+        - `url`: The URL of the Kafka broker.
+    - `topic`:
+        - `payment-events`: The Kafka topic for payment events.
+        - `callback-messages`: The Kafka topic for callback messages.
+    - `reader`:
+        - `group-id`: The consumer group ID for the callback service.
 
-- `CALLBACK_PROCESSING_PARALLELISM`: The number of concurrent callback processing goroutines.
-- `CALLBACK_POLLING_INTERVAL_MS`: The interval in milliseconds for polling unprocessed callbacks.
-- `CALLBACK_TIMEOUT_MS`: The timeout in milliseconds for sending a callback.
-- `CALLBACK_FETCH_SIZE`: The number of unprocessed callbacks to fetch in each polling interval.
-- `CALLBACK_RETRY_DELAY_MS`: The delay in milliseconds before retrying a failed callback.
-- `CALLBACK_RETRY_PUBLISH_DELAY_MS`: The delay in milliseconds before retrying a failed Kafka publish.
-- `MAX_DELIVERY_ATTEMPTS`: The maximum number of attempts to deliver a callback.
-- `MAX_PUBLISH_ATTEMPTS`: The maximum number of attempts to publish a callback message to Kafka.
+### Callback Configuration
+- `callback`:
+    - `processor`:
+        - `parallelism`: The number of concurrent callback processing goroutines.
+        - `reschedule-delay-ms`: The delay in milliseconds before rescheduling a failed callback.
+        - `max-delivery-attempts`: The maximum number of attempts to deliver a callback.
+    - `producer`:
+        - `polling-interval-ms`: The interval in milliseconds for polling unprocessed callbacks.
+        - `fetch-size`: The number of unprocessed callbacks to fetch in each polling interval.
+        - `reschedule-delay-ms`: The delay in milliseconds before retrying a failed Kafka publish.
+        - `max-publish-attempts`: The maximum number of attempts to publish a callback message to Kafka.
+    - `sender`:
+        - `timeout-ms`: The timeout in milliseconds for sending a callback.
 
-- `SERVER_PORT`: The port number on which the callback service server listens.
+### Server Configuration
+- `server`:
+    - `port`: The port number on which the callback service server listens.
+
+### Metrics Configuration
+- `metrics`:
+    - `url`: The URL for the metrics endpoint.
+    - `interval-ms`: The interval in milliseconds for sending metrics.
+    - `common-labels`: Common labels for metrics.
+
+### Logs Configuration
+- `logs`:
+    - `url`: The URL for the logs endpoint.
 
 ## Data structures
 

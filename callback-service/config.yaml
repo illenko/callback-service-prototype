@@ -40,4 +40,4 @@ metrics:
   common-labels: service="callback-service"
 
 logs:
-  url:
+  url: http://localhost:9428/insert/loki/api/v1/push
